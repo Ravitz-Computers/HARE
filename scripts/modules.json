@@ -1,0 +1,4 @@
+{
+  "_comment": "Downloadable vendor modules, published as zips alongside a HARE release. Ids and URLs only — digests are computed from the real bytes by scripts/module-manifest.mjs and never written here by hand. Modules needing no download (SteelSeries, MSI) are not listed; see electron/backend/modules/moduleRegistry.ts.",
+  "modules": []
+}

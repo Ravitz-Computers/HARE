@@ -1,0 +1,9 @@
+{
+  "_comment": "OpenRGB builds approved for HARE to install. Versions and URLs only — digests are computed from the real bytes by scripts/openrgb-manifest.mjs and never written here by hand. Add a newer release with: npm run openrgb:sync",
+  "builds": [
+    {
+      "version": "release_candidate_1.0rc3",
+      "url": "https://codeberg.org/OpenRGB/OpenRGB/releases/download/release_candidate_1.0rc3/OpenRGB_1.0rc3_Windows_64_6fbcf62.zip"
+    }
+  ]
+}

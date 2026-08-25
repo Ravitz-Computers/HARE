@@ -1,0 +1,5 @@
+{
+  "_comment": "The PawnIO driver, which OpenRGB needs for motherboard and RAM lighting (SMBus). \"track\": \"latest\" resolves the current release from GitHub at build time and pins its digest — no URL or hash is ever written here by hand. To freeze a specific version instead, add it to \"builds\" with a version and url. With neither, HARE still detects a PawnIO the user installed themselves.",
+  "track": "latest",
+  "builds": []
+}
