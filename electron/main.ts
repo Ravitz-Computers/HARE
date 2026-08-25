@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, desktopCapturer, 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import os from "node:os";
 import { existsSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import { BackendManager } from "./backend/backendManager.js";
@@ -28,7 +29,7 @@ import { HwinfoProvider } from "./backend/sensors/providers/hwinfoRegistry.js";
 import { hottestTemperature } from "./backend/sensors/sensorTypes.js";
 import { detectPawnIo } from "./backend/pawnIo.js";
 import { DiagnosticLogger } from "./backend/logger.js";
-import { BUILD_STAMP } from "./backend/generated/buildStamp.js";
+import { APP_VERSION, BUILD_STAMP } from "./backend/generated/buildStamp.js";
 import { canInstallPawnIo, installPawnIo } from "./backend/pawnIoInstaller.js";
 import type { ModuleId } from "./backend/modules/moduleRegistry.js";
 import {
@@ -52,6 +53,7 @@ import {
   type ImportBackupResult,
   type VendorId,
   type ModeParamsPatch,
+  type SystemReport,
 } from "./backend/types.js";
 
 // Defense-in-depth, registered before anything else runs: a single
@@ -93,7 +95,14 @@ const manager = new BackendManager({
   // automatically (see backendManager.ts — there's no demo-device fallback).
   openRgbExePath: resolveBundledOpenRgbPath(),
 });
-const ambientSync = new AmbientSyncController((bands) => reportAmbientBands(bands));
+const ambientSync = new AmbientSyncController(
+  (bands) => reportAmbientBands(bands),
+  undefined,
+  (reason) => {
+    if (reason) manager.setEffectProblem("ambient-sync", reason);
+    else manager.clearEffectProblem("ambient-sync");
+  }
+);
 /**
  * Sensor sources, in preference order — the hub keeps the first reading it
  * sees for any given sensor, so direct sources win over bridged ones. Someone
@@ -134,18 +143,54 @@ function resolveBundledOpenRgbPath(): string | null {
   return existsSync(candidate) ? candidate : null;
 }
 
+/**
+ * The name of the value HARE writes under Windows' Run key.
+ *
+ * Passed explicitly rather than left to Electron, which defaults it to the
+ * app's AppUserModelId and therefore to something like `electron.app.HARE`.
+ * The uninstaller has to delete this value by name, and a name nobody chose
+ * is a name the uninstaller can get wrong — which would leave a permanent
+ * startup entry pointing at a program that no longer exists.
+ *
+ * Keep in step with build/installer.nsh.
+ */
+const RUN_KEY_VALUE_NAME = "HARE";
+
+/** Passed by the Run-key entry, and only by it. See applyLaunchOnStartup. */
+const STARTED_BY_WINDOWS_FLAG = "--started-by-windows";
+
+/** True when this launch came from Windows at logon rather than from a person. */
+const startedByWindows = process.argv.includes(STARTED_BY_WINDOWS_FLAG);
+
+/**
+ * Where bug reports go. Fixed here rather than taken from the renderer, so
+ * the only address HARE will ever open a mail window for is this one.
+ * Keep in step with COMPANY.email in src/lib/appInfo.ts.
+ */
+const BUG_REPORT_EMAIL = "avrumi@ravitzcomputers.com";
+
 /** Applies (or removes) Windows' "run at login" registration to match the setting. No-op outside a packaged build — registering the dev Electron binary to launch at login would be actively unhelpful. */
 function applyLaunchOnStartup(enabled: boolean): void {
   if (!app.isPackaged) return;
   try {
-    app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath });
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      path: process.execPath,
+      name: RUN_KEY_VALUE_NAME,
+      // The flag is how HARE later tells "Windows started me" from "someone
+      // double-clicked me". Electron's own `wasOpenedAtLogin` is macOS-only,
+      // and without this the two are indistinguishable — so either every
+      // launch opens to the tray (a program that appears to do nothing when
+      // you click it) or none does.
+      args: [STARTED_BY_WINDOWS_FLAG],
+    });
   } catch (err) {
     console.warn("[HARE] Couldn't update launch-on-startup registration:", err);
   }
 }
 
 // Windows reads its own taskbar/title-bar icon best from a real multi-size
-// .ico (see build_icons.py); .png is the right choice everywhere else
+// .ico (see scripts/build-art.mjs); .png is the right choice everywhere else
 // (Linux dev runs, Electron's cross-platform BrowserWindow default).
 // This path only resolves once packaged if build/ is actually shipped --
 // see electron-builder.yml's `files` list, which had missed this entirely
@@ -162,6 +207,21 @@ const windowIconPathCandidate = path.join(
 // error anywhere, which is exactly the bug this guards against if the file
 // ever goes missing again.
 const windowIconPath = existsSync(windowIconPathCandidate) ? windowIconPathCandidate : undefined;
+
+/**
+ * The second screen's own badge.
+ *
+ * It gets its own taskbar button, so it needs its own icon -- with HARE's,
+ * the taskbar showed two identical entries and the frameless fullscreen one
+ * read as a dialog someone had left open. Falls back to HARE's icon rather
+ * than to nothing, since a missing icon path silently produces a blank
+ * taskbar button with no error anywhere.
+ */
+const dashboardIconCandidate = path.join(__dirname, "..", "build", "dashboard-icon.ico");
+const dashboardIconPath =
+  process.platform === "win32" && existsSync(dashboardIconCandidate)
+    ? dashboardIconCandidate
+    : windowIconPath;
 
 /**
  * Stops the window being navigated or re-purposed into something other than
@@ -283,8 +343,9 @@ function getDashboard(): DashboardWindow {
       isDev,
       preloadPath,
       indexHtmlPath,
-      iconPath: windowIconPath,
+      iconPath: dashboardIconPath,
       applyGuards: applyNavigationGuards,
+      isTransparent: () => appSettings.get().dashboard.background.kind === "none",
       onChange: (open) => {
         // Closing it from the dashboard's own button (or by any other route)
         // has to switch the setting off, or Settings would keep claiming it's
@@ -318,11 +379,28 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Music Reactive's audio capture runs in this window, driven by
+      // requestAnimationFrame. Chromium stops firing that for a hidden
+      // window, and HARE hides rather than closes — so minimising to the
+      // tray froze the lights on whatever colour they held at that moment,
+      // while every other effect kept running. Which made it look like a
+      // bug in the music effect rather than in the window.
+      backgroundThrottling: false,
     },
     show: false,
   });
 
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  // Straight to the tray when Windows started HARE and the setting says so.
+  // Anything else shows the window: an app that opens to nothing when you
+  // double-click it is broken, whatever a setting says.
+  const openHidden = startedByWindows && appSettings.get().startMinimized;
+  mainWindow.once("ready-to-show", () => {
+    if (openHidden) {
+      console.log("[HARE] Started by Windows -- staying in the tray.");
+      return;
+    }
+    mainWindow?.show();
+  });
   applyNavigationGuards(mainWindow);
 
   if (isDev) {
@@ -596,6 +674,14 @@ function registerIpcHandlers() {
     reportAudioLevel(level);
   });
 
+  // Music Reactive captures audio in the window, so only the window knows
+  // when Windows refuses to hand any over.
+  ipcMain.on(IPC.REPORT_EFFECT_PROBLEM, (_e, effectId: EffectId, reason: string | null) => {
+    if (!EFFECTS.some((effect) => effect.id === effectId)) return;
+    if (reason) manager.setEffectProblem(effectId, String(reason).slice(0, 300));
+    else manager.clearEffectProblem(effectId);
+  });
+
   ipcMain.on(IPC.REPORT_AUDIO_SPECTRUM, (_e, bands: number[], beat: boolean) => {
     reportAudioSpectrum(bands, beat);
   });
@@ -699,6 +785,134 @@ function registerDashboardHandlers() {
   ipcMain.handle(IPC.GET_LOG_FOLDER, () => logger.folder);
 
   /**
+   * Stops OpenRGB and starts it again.
+   *
+   * The state this exists for is OpenRGB still being *connected* but no
+   * longer doing anything -- a wedged server, which otherwise means closing
+   * HARE, finding OpenRGB.exe in Task Manager and starting over. What it
+   * actually does depends on who started the server, and it says which,
+   * because the useful next step is different in each case.
+   */
+  ipcMain.handle(
+    IPC.RESTART_OPENRGB,
+    async (): Promise<{ ok: true; message: string } | { ok: false; message: string }> => {
+      const devicesNow = () => manager.getState().devices.length;
+      const found = (verb: string) => {
+        const count = devicesNow();
+        return `${verb} ${count === 0 ? "no devices yet" : `${count} device${count === 1 ? "" : "s"}`}.`;
+      };
+
+      try {
+        // 1. The straightforward case: HARE launched it, so HARE can stop it.
+        const { stopped, owned } = await manager.restartOwnServer();
+        if (owned) {
+          return stopped
+            ? { ok: true, message: `OpenRGB restarted. HARE ${found("found")}` }
+            : {
+                ok: false,
+                message:
+                  "OpenRGB was asked to stop but the port is still in use. Something else may be holding it — try again in a moment.",
+              };
+        }
+
+        // 2. The elevated logon task started it. HARE runs unelevated on
+        //    purpose and cannot stop an elevated process, so the task is
+        //    restarted instead, which is the supported way to do it.
+        if (await elevation.isEnabled()) {
+          const restart = await elevation.restartServer();
+          if (!restart.ok) {
+            return {
+              ok: false,
+              message: `Couldn't restart the elevated OpenRGB: ${restart.message} You can restart your PC, or turn hardware access off and on again in Settings.`,
+            };
+          }
+          await manager.reconnect();
+          return { ok: true, message: `OpenRGB restarted with hardware access. HARE ${found("found")}` };
+        }
+
+        // 3. Somebody is running OpenRGB themselves. Their window, their
+        //    process — killing it would make their own app vanish. So HARE
+        //    reconnects and says exactly that.
+        await manager.reconnect();
+        return {
+          ok: true,
+          message: `This OpenRGB wasn't started by HARE, so it was left running and HARE reconnected instead. ${found("Now seeing")} To restart it, close OpenRGB yourself and HARE will start its own copy.`,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+  );
+
+  /**
+   * Hands a written bug report to whatever email program the user has.
+   *
+   * The renderer sends a subject and a body, never a URL. That is the whole
+   * point of doing it here: `mailto:` is a scheme that launches a local
+   * application, and the navigation guards deliberately refuse to pass any
+   * such scheme from the renderer to the OS. Rather than loosening that rule
+   * for one feature, the address is HARE's own and the scheme is added on
+   * this side, so the renderer cannot reach anything it wasn't meant to.
+   */
+  ipcMain.handle(
+    IPC.OPEN_BUG_REPORT,
+    async (_e, subject: string, body: string): Promise<{ ok: true } | { ok: false; message: string }> => {
+      try {
+        // Long bodies get truncated or refused by some mail clients and by
+        // the shell itself; this is well inside every limit worth caring
+        // about, and the log is attached separately anyway.
+        const url =
+          `mailto:${BUG_REPORT_EMAIL}` +
+          `?subject=${encodeURIComponent(String(subject).slice(0, 200))}` +
+          `&body=${encodeURIComponent(String(body).slice(0, 6000))}`;
+        await shell.openExternal(url);
+        return { ok: true };
+      } catch {
+        return {
+          ok: false,
+          message: `Couldn't open your email program. You can write to ${BUG_REPORT_EMAIL} directly.`,
+        };
+      }
+    }
+  );
+
+  /**
+   * The facts that make a bug report answerable.
+   *
+   * Gathered only when this is called, which only happens when someone has
+   * ticked the box on the report form — HARE never collects any of this in
+   * the background, and it never leaves the PC except in an email the person
+   * writes, reads and sends themselves.
+   */
+  ipcMain.handle(IPC.GET_SYSTEM_REPORT, async (): Promise<SystemReport> => {
+    const state = manager.getState();
+    const pawnIo = await detectPawnIo();
+    const db = deviceDb.getStatus();
+    return {
+      appVersion: APP_VERSION,
+      buildStamp: BUILD_STAMP,
+      os: `${os.type()} ${os.release()}`,
+      arch: process.arch,
+      electron: process.versions.electron,
+      openRgbVersion: db.installedVersion,
+      backendStatus: state.status,
+      deviceCount: state.devices.length,
+      // Names only. A device name is a product model, which is what makes a
+      // report actionable; nothing else about the device is included.
+      deviceNames: state.devices.map((d) => d.name),
+      pawnIoInstalled: pawnIo.installed,
+      pawnIoRunning: pawnIo.running,
+      elevationEnabled: await elevation.isEnabled(),
+      sensorSources: sensors.getSnapshot().sources.filter((s) => s.available).map((s) => s.name),
+      loggingEnabled: appSettings.get().diagnosticLogging,
+      conflicts: (await detectConflicts()).map((c) => c.name),
+    };
+  });
+
+  /**
    * Opens the OpenRGB HARE bundles, in its own window.
    *
    * When lighting doesn't change there is exactly one question worth
@@ -744,7 +958,7 @@ function registerDashboardHandlers() {
       ok: false,
       canceled: false,
       reason:
-        "HARE can't run widgets from other people yet. They need to be sandboxed and signature-checked first, and that isn't built — so nothing was installed.",
+        "HARE can't add widgets from other people yet. Nothing was installed.",
     };
   });
 
@@ -800,7 +1014,17 @@ function registerGalleryAndBackupHandlers() {
   ipcMain.handle(IPC.APPLY_LOOK, async (_e, lookId: string, deviceId: number) => {
     const look = gallery.get(lookId);
     if (!look) throw new Error("That look isn't in the gallery anymore.");
-    if (look.effectId === "static" && !look.layers?.length) {
+    // A painting is checked first: it carries more than the flat colour and
+    // effect id saved alongside it, which would otherwise quietly win.
+    if (look.ledColors?.length) {
+      const target = manager.getState().devices.find((d) => d.id === deviceId);
+      const size = target?.colors.length ?? look.ledColors.length;
+      const painting = look.ledColors;
+      await manager.setRawLedColors(
+        deviceId,
+        Array.from({ length: size }, (_, i) => painting[i % painting.length])
+      );
+    } else if (look.effectId === "static" && !look.layers?.length) {
       await manager.setDeviceColor(deviceId, look.color);
     } else {
       manager.applyEffect({
@@ -1060,6 +1284,21 @@ async function logDiagnosticInventory(): Promise<void> {
       `[HARE] Elevated OpenRGB logon task: ${elevated ? "installed" : "NOT installed"} — ` +
         "this is what gives OpenRGB the SMBus access motherboard and RAM lighting needs."
     );
+    if (elevated) {
+      // A task registered by an older HARE points at wherever that build was
+      // installed. HARE moved from AppData to Program Files, so a stale task
+      // reports as installed, runs, and launches nothing — leaving no OpenRGB
+      // server at all while everything claims to be fine.
+      const registered = await elevation.registeredCommand();
+      const current = resolveBundledOpenRgbPath();
+      console.log(`[HARE]   The task runs: ${registered ?? "(couldn't read it)"}`);
+      if (registered && current && !registered.toLowerCase().includes(current.toLowerCase())) {
+        console.warn(
+          `[HARE]   THIS IS STALE. It points somewhere other than this install (${current}). ` +
+            "Turn the permission off and on again in Settings - Hardware to re-register it."
+        );
+      }
+    }
 
     const pawn = await detectPawnIo();
     console.log(`[HARE] PawnIO driver: ${pawn.installed ? (pawn.running ? "installed and running" : "installed, not running") : "NOT installed"} (${pawn.detail})`);
@@ -1125,6 +1364,12 @@ if (!gotTheLock) {
 app.whenReady().then(async () => {
   // The second copy is on its way out; it must not do any of this.
   if (!gotTheLock) return;
+
+  // Windows groups taskbar buttons, jump lists and notifications by this id.
+  // Set explicitly so it matches the installer's app id rather than being
+  // derived from the executable name, which is what makes the pinned icon
+  // and the running window the same thing to Windows.
+  app.setAppUserModelId("com.ravitzcomputers.hare");
 
   // Installed before any window exists, so the very first document load is
   // already covered by the policy.

@@ -1,7 +1,9 @@
 import { chromium } from "playwright";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const OUT_DIR = "/home/claude/hare/screenshots";
+// Relative to the project, not to whoever's machine this was written on.
+const OUT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "screenshots");
 const URL = "http://localhost:4175/";
 
 async function main() {

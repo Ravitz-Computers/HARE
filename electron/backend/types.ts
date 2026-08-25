@@ -213,6 +213,17 @@ export interface BackendState {
   status: BackendStatus;
   message?: string;
   devices: KLDevice[];
+  /**
+   * Why an effect that needs something from outside HARE isn't getting it,
+   * keyed by effect id.
+   *
+   * Reactive needs a global keyboard hook; Ambient and Music Reactive need
+   * screen and audio capture. Each of those can be refused by Windows or by
+   * security software, and each used to fail into a silent nothing: the
+   * effect stayed selected, the lights stopped moving, and the only record
+   * was a line in a console nobody was looking at.
+   */
+  effectProblems?: Partial<Record<EffectId, string>>;
 }
 
 /**
@@ -243,6 +254,15 @@ export type ThemePreference = "system" | "light" | "dark";
  */
 export interface AppSettings {
   launchOnStartup: boolean;
+  /**
+   * When HARE is started by Windows at logon, open straight to the tray
+   * rather than putting a window in front of someone who is trying to log in.
+   *
+   * Only applies to that case. Launching HARE yourself always shows it — an
+   * app that opens to nothing when you double-click it is broken, whatever
+   * the setting says.
+   */
+  startMinimized: boolean;
   themePreference: ThemePreference;
   dashboard: DashboardSettings;
   /**
@@ -265,6 +285,23 @@ export interface AppSettings {
    * and never sent anywhere — see backend/logger.ts.
    */
   diagnosticLogging: boolean;
+  /**
+   * Cooler and case screens showing a live temperature, keyed by
+   * "vendorId:productId" so the setting follows the screen rather than the
+   * order USB happened to enumerate it in.
+   */
+  screenGauges: Record<string, ScreenGaugeSettings>;
+}
+
+/** One screen's live readout. */
+export interface ScreenGaugeSettings {
+  enabled: boolean;
+  /**
+   * Which sensor to show, or null for whatever is hottest right now — the
+   * sensible default, and the one that keeps working when the sensor someone
+   * chose stops reporting.
+   */
+  sensorId: string | null;
 }
 
 /** One monitor, as something the user can pick from a list. */
@@ -295,8 +332,11 @@ export const DASHBOARD_WIDGETS: {
   { id: "quick-controls", name: "Quick Controls", description: "One-tap effects, colors and lights-out." },
   { id: "looks", name: "Saved Looks", description: "Apply anything from your Gallery to everything at once." },
   { id: "ambient", name: "Ambient Glow", description: "A slow wash of your current colors." },
-  { id: "sensors", name: "System", description: "Temperatures, load and fan speeds." },
-  { id: "system", name: "Status", description: "Devices connected and what HARE is doing." },
+  // Named for what each shows. These read "System" and "Status", which is
+  // two near-identical words for two different panels — the sensor one was
+  // the "System" widget and the status one was "Status".
+  { id: "sensors", name: "Sensors", description: "Temperatures, load and fan speeds." },
+  { id: "system", name: "HARE Status", description: "Devices connected and what HARE is doing." },
 ];
 
 export const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetId[] = [
@@ -325,6 +365,17 @@ export interface DashboardSettings {
   /** 24-hour clock instead of AM/PM. */
   clock24h: boolean;
   /**
+   * Stops the layout being changed from the second screen itself.
+   *
+   * The second screen is a touch panel, often somewhere anyone can reach —
+   * a case window, a desk stand. Editing there is the point of it, right up
+   * until someone leans on it. Locking is set from HARE's own window, so the
+   * screen can never unlock itself.
+   */
+  locked: boolean;
+  /** What's behind the widgets. */
+  background: DashboardBackground;
+  /**
    * Monitors the user has hidden from the second-screen picker.
    *
    * A PC can report displays nobody wants to put a dashboard on — a TV that's
@@ -343,11 +394,39 @@ export interface DashboardSettings {
  */
 export interface DashboardWidgetPlacement {
   id: DashboardWidgetId;
-  /** Columns wide, 1 or 2. */
-  w: 1 | 2;
-  /** Rows tall, 1 or 2. */
-  h: 1 | 2;
+  /** Columns wide, 1 to 4 — the full width of the grid. */
+  w: WidgetSpanW;
+  /** Rows tall, 1 to 3. */
+  h: WidgetSpanH;
+  /**
+   * This widget's own accent, as `#rrggbb`, or null to use HARE's.
+   *
+   * It tints the card's edge and its heading rather than flooding the whole
+   * card, so a wall of coloured panels stays readable — the point is telling
+   * one apart from another at a glance across the room.
+   */
+  accent?: string | null;
 }
+
+export type WidgetSpanW = 1 | 2 | 3 | 4;
+export type WidgetSpanH = 1 | 2 | 3;
+
+/**
+ * What sits behind the widgets on the second screen.
+ *
+ * `app` is HARE's own dark wash. `color` is a flat colour. `image` is a
+ * picture, stored as a data URL because it has to reach a second window and
+ * survive a restart, and a path would have to survive both a sandbox and a
+ * file:// origin. `none` makes the window itself transparent — the desktop
+ * shows through, and only the cards are drawn.
+ */
+export type DashboardBackground =
+  | { kind: "app" }
+  | { kind: "color"; color: string }
+  | { kind: "image"; image: string; fit: "cover" | "contain"; dim: number }
+  | { kind: "none" };
+
+export const DEFAULT_DASHBOARD_BACKGROUND: DashboardBackground = { kind: "app" };
 
 /** The grid the second screen is laid out on, and the preview mirrors. */
 export const DASHBOARD_COLUMNS = 4;
@@ -360,10 +439,13 @@ export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
     id,
     // The clock and the lighting list earn more room by default; everything
     // else reads fine in one cell.
-    w: id === "clock" || id === "lighting" ? 2 : 1,
-    h: id === "lighting" ? 2 : 1,
+    w: (id === "clock" || id === "lighting" ? 2 : 1) as WidgetSpanW,
+    h: (id === "lighting" ? 2 : 1) as WidgetSpanH,
+    accent: null,
   })),
   clock24h: false,
+  locked: false,
+  background: { ...DEFAULT_DASHBOARD_BACKGROUND },
 };
 
 /**
@@ -442,15 +524,22 @@ export interface LayeredLook {
 /**
  * How a device was last set, saved so lighting survives a restart.
  *
- * Three shapes because there are three genuinely different things HARE can
- * do to a device, and restoring the wrong one would be worse than restoring
+ * Four shapes because there are four genuinely different things HARE can do
+ * to a device, and restoring the wrong one would be worse than restoring
  * nothing: a flat colour, one of HARE's own effects (including a layer
- * stack), or a mode stored in the device's own firmware.
+ * stack), a mode stored in the device's own firmware, or an exact per-LED
+ * arrangement someone painted by hand.
+ *
+ * The painted one is stored as the colours themselves, because there is
+ * nothing smaller to derive it from: it is whatever was clicked, LED by LED,
+ * and losing it means losing work that can only be redone by hand. It was
+ * also the one thing HARE could do that didn't survive a restart.
  */
 export type DevicePreference =
   | { kind: "color"; color: KLColor }
   | { kind: "mode"; modeId: number }
-  | { kind: "effect"; assignment: Omit<EffectAssignment, "deviceId"> };
+  | { kind: "effect"; assignment: Omit<EffectAssignment, "deviceId"> }
+  | { kind: "raw"; colors: KLColor[] };
 
 /**
  * How many LEDs the user has told HARE are on each resizable zone, keyed by
@@ -519,6 +608,16 @@ export interface SavedLook {
   /** Present when the look is a layer stack rather than a single effect — see EffectAssignment.layers. */
   layers?: EffectLayer[];
   loopSeconds?: number;
+  /**
+   * An exact per-LED painting, when the look was captured from the LED
+   * Painter rather than from an effect.
+   *
+   * Optional, so every look saved before this existed is still valid and the
+   * guard below doesn't have to change. Applied to a device with a different
+   * number of LEDs, the painting repeats to fill it — a keyboard painting on
+   * a three-LED header has to become something rather than nothing.
+   */
+  ledColors?: KLColor[];
 }
 
 /** What SAVE_LOOK needs from the renderer — everything else (id, createdAt) is assigned by the main process. */
@@ -616,6 +715,18 @@ export interface VendorStatus {
   connected: boolean;
   /** Always-accurate, human-readable explanation of the state above — this is what the Settings panel shows verbatim. */
   message: string;
+  /** For a vendor HARE can't drive: the specific reason, shown under the message. */
+  notControllableReason?: string;
+  /**
+   * True when HARE has a control path for this vendor that has never been run
+   * against the real software — see VendorDefinition.verified.
+   *
+   * Surfaced as its own field rather than buried in `message`, because the
+   * badge beside it read a confident green "Live control" for every vendor,
+   * verified or not, and someone glancing at that list had no way to tell an
+   * integration that is known to work from one that is a best guess.
+   */
+  unverified: boolean;
   lastCheckedAt: string | null;
 }
 
@@ -778,6 +889,8 @@ export const IPC = {
   REPORT_AUDIO_LEVEL: "hare:report-audio-level",
   /** Same path, with the detail a single level can't carry: per-band levels and whether this sample is a beat. */
   REPORT_AUDIO_SPECTRUM: "hare:report-audio-spectrum",
+  /** The renderer telling the main process that an effect it drives can't get what it needs. */
+  REPORT_EFFECT_PROBLEM: "hare:report-effect-problem",
 
   // Gallery — user-saved lighting looks (see SavedLook), sharable as files.
   GET_GALLERY: "hare:get-gallery",
@@ -862,9 +975,42 @@ export const IPC = {
   GET_LOG_FOLDER: "hare:get-log-folder",
   /** Opens the bundled OpenRGB's own window — the fastest way to tell a HARE problem from a hardware one. */
   OPEN_OPENRGB: "hare:open-openrgb",
+  /** Stops the OpenRGB server and starts it again, for when it stops responding. */
+  RESTART_OPENRGB: "hare:restart-openrgb",
   /** Tells the board how many LEDs are on an ARGB header, so it has something to light. */
   RESIZE_ZONE: "hare:resize-zone",
+  /** The few facts about this PC that make a bug report answerable, gathered only when someone asks to include them. */
+  GET_SYSTEM_REPORT: "hare:get-system-report",
+  /** Opens the user's email program with a bug report ready to send. */
+  OPEN_BUG_REPORT: "hare:open-bug-report",
 } as const;
+
+/**
+ * What HARE knows about this PC, for a bug report.
+ *
+ * Deliberately short, and deliberately assembled only when someone has asked
+ * for it. Every field here is something that changes the answer to "why isn't
+ * my lighting working": which Windows, which build of HARE, whether the
+ * driver is there, what OpenRGB found. Nothing identifies the person or the
+ * machine — no username, no serial numbers, no network anything.
+ */
+export interface SystemReport {
+  appVersion: string;
+  buildStamp: string;
+  os: string;
+  arch: string;
+  electron: string;
+  openRgbVersion: string | null;
+  backendStatus: string;
+  deviceCount: number;
+  deviceNames: string[];
+  pawnIoInstalled: boolean;
+  pawnIoRunning: boolean;
+  elevationEnabled: boolean;
+  sensorSources: string[];
+  loggingEnabled: boolean;
+  conflicts: string[];
+}
 
 export const EFFECTS: EffectDefinition[] = [
   {

@@ -2,7 +2,7 @@ import type { DeviceBackend } from "./deviceBackend.js";
 import { OpenRgbBackend } from "./openrgbBackend.js";
 import { NoDeviceBackend } from "./noDeviceBackend.js";
 import { EffectRunner } from "./effectsEngine.js";
-import { startGlobalInputHook, stopGlobalInputHook } from "./inputHook.js";
+import { globalInputHookProblem, startGlobalInputHook, stopGlobalInputHook } from "./inputHook.js";
 import { DevicePrefsStore } from "./devicePrefsStore.js";
 import { deviceFingerprint } from "./deviceIdentity.js";
 import { CompositeBackend } from "./compositeBackend.js";
@@ -120,6 +120,18 @@ export class BackendManager {
           device.activeEffectId = "static";
         } else if (pref.kind === "mode") {
           void this.backend.setNativeMode(device.id, pref.modeId);
+        } else if (pref.kind === "raw") {
+          // A device can come back with a different number of LEDs — a strip
+          // re-plugged, a header resized. Writing the old array would either
+          // overrun or leave a tail undefined, so it's fitted to what the
+          // device has now: extra LEDs repeat the painting rather than
+          // staying dark.
+          const fitted = Array.from(
+            { length: device.colors.length },
+            (_, i) => pref.colors[i % pref.colors.length]
+          );
+          void this.backend.setRawLedColors(device.id, fitted);
+          device.activeEffectId = null;
         } else {
           this.applyEffect({ ...pref.assignment, deviceId: device.id });
         }
@@ -218,6 +230,43 @@ export class BackendManager {
     this.setBackend(empty);
   }
 
+  /**
+   * Stops OpenRGB and starts it again.
+   *
+   * The button for when OpenRGB is wedged -- connected, but no longer doing
+   * anything -- which is the state that otherwise means closing HARE,
+   * hunting down OpenRGB.exe in Task Manager, and starting over.
+   *
+   * There are three genuinely different situations and this reports which
+   * one it was in, because the useful answer is different in each:
+   *
+   *   - **HARE started it.** Stop it, wait for the port, start it again.
+   *   - **The elevated logon task started it.** HARE runs unelevated and
+   *     cannot stop an elevated process, so the caller restarts the task
+   *     instead -- see `restartOpenRgb` in main.ts.
+   *   - **Someone is running OpenRGB themselves.** Their window, their
+   *     process. HARE reconnects and says so rather than killing it.
+   */
+  async restartOwnServer(): Promise<{ stopped: boolean; owned: boolean }> {
+    const live = this.liveBackend();
+    const owned = live?.ownsServer ?? false;
+    if (!live || !owned) return { stopped: false, owned };
+    const stopped = await live.stopOwnServer();
+    if (stopped) await this.start();
+    return { stopped, owned };
+  }
+
+  /** Reconnects to whatever OpenRGB is serving now, without stopping anything. */
+  async reconnect(): Promise<void> {
+    await this.start();
+  }
+
+  /** The real OpenRGB backend, past the vendor wrapper, or null when there isn't one. */
+  private liveBackend(): OpenRgbBackend | null {
+    const raw = this.backend instanceof CompositeBackend ? this.backend.primary : this.backend;
+    return raw instanceof OpenRgbBackend ? raw : null;
+  }
+
   async rescan(): Promise<void> {
     // Not even connected to OpenRGB right now (the "no devices" placeholder)
     // — a plain rescan() on it is a no-op by design, so retry the real
@@ -229,11 +278,15 @@ export class BackendManager {
     await this.backend.rescan();
   }
 
+  /** Why an effect that needs something outside HARE isn't getting it, by effect id. */
+  private effectProblems: Partial<Record<EffectId, string>> = {};
+
   getState(): BackendState {
     return {
       status: this.backend.getStatus(),
       message: this.backend.getStatusMessage(),
       devices: this.backend.getDevices(),
+      effectProblems: Object.keys(this.effectProblems).length ? { ...this.effectProblems } : undefined,
     };
   }
 
@@ -337,10 +390,19 @@ export class BackendManager {
     await this.backend.updateModeParams(deviceId, modeId, patch, persist);
   }
 
-  /** Advanced Mode: the raw per-LED painter's write path — same "hand control back from HARE's effect system" handling as a manual color pick, then pushes the caller's exact color array with no further processing. */
+  /**
+   * Advanced Mode: the raw per-LED painter's write path — same "hand control
+   * back from HARE's effect system" handling as a manual color pick, then
+   * pushes the caller's exact color array with no further processing.
+   *
+   * The save comes last, and the order is the whole trick: clearEffect wipes
+   * whatever preference the device had, so a save written before it is erased
+   * by the very call meant to record it.
+   */
   async setRawLedColors(deviceId: number, colors: KLColor[]): Promise<void> {
     this.clearEffect(deviceId, null);
     await this.backend.setRawLedColors(deviceId, colors);
+    this.rememberDevice(deviceId, { kind: "raw", colors: colors.map((c) => ({ ...c })) });
   }
 
   applyEffect(assignment: EffectAssignment): void {
@@ -422,8 +484,32 @@ export class BackendManager {
    * subscribe to.
    */
   private syncReactiveHook(): void {
-    if (this.isEffectActive("reactive")) void startGlobalInputHook();
-    else stopGlobalInputHook();
+    if (!this.isEffectActive("reactive")) {
+      stopGlobalInputHook();
+      this.clearEffectProblem("reactive");
+      return;
+    }
+    void startGlobalInputHook().then(() => {
+      // The hook already recorded why it couldn't start; until now nothing
+      // ever read it, so Reactive simply sat there doing nothing with no
+      // explanation anywhere in the interface.
+      const problem = globalInputHookProblem();
+      if (problem) this.setEffectProblem("reactive", problem);
+      else this.clearEffectProblem("reactive");
+    });
+  }
+
+  /** Records why an effect that needs something from outside HARE isn't getting it. */
+  setEffectProblem(effectId: EffectId, reason: string): void {
+    if (this.effectProblems[effectId] === reason) return;
+    this.effectProblems[effectId] = reason;
+    this.emitState();
+  }
+
+  clearEffectProblem(effectId: EffectId): void {
+    if (!(effectId in this.effectProblems)) return;
+    delete this.effectProblems[effectId];
+    this.emitState();
   }
 
   /** Applies one effect, color, speed, and brightness across every connected device at once — the "Sync All" button. */

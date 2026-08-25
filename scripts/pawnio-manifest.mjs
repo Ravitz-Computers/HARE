@@ -6,7 +6,7 @@
 // HARE can fetch where an unverified download would mean running unverified
 // code in ring 0. So the digest is computed from the real published bytes at
 // build time, never written by a person, and an entry that cannot be
-// verified is left out — which makes the install button say "not available
+// verified is left out -- which makes the install button say "not available
 // in this build" rather than fetch something unchecked.
 //
 //   node scripts/pawnio-manifest.mjs           # regenerate from config
@@ -25,7 +25,7 @@ const BUNDLE_DIR = path.join(root, "vendor", "pawnio");
 
 /**
  * PawnIO's installer is published as a GitHub release, so the version can be
- * resolved rather than hand-written — the same rule as everything else here:
+ * resolved rather than hand-written -- the same rule as everything else here:
  * a human decides *whether* to ship it, the machine works out *what* that is.
  */
 const RELEASES_API = "https://api.github.com/repos/namazso/PawnIO.Setup/releases/latest";
@@ -79,10 +79,52 @@ async function fetchArtifact(url) {
   return { bytes, cached: false };
 }
 
+/**
+ * A copy already sitting in the bundle directory.
+ *
+ * build.ps1 downloads the payloads with Windows' own HTTP stack before npm
+ * runs, because that is the one that works behind a corporate proxy, with a
+ * TLS-inspecting antivirus, and on a machine where Node's fetch is blocked.
+ * When it has already put the file there, this hashes what's on disk rather
+ * than reaching for the network a second time -- the digest still comes from
+ * real bytes, which is the only thing that ever mattered.
+ */
+function localBundle() {
+  const file = path.join(BUNDLE_DIR, "PawnIO-Setup.exe");
+  if (!existsSync(file)) return null;
+  const bytes = readFileSync(file);
+  if (bytes.length < 100_000) return null; // an error page saved as a file
+  return {
+    version: "bundled",
+    url: "file://vendor/pawnio/PawnIO-Setup.exe",
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes: bytes.length,
+  };
+}
+
 async function main() {
   const config = readConfig();
   const approved = [];
   const failures = [];
+
+  const local = localBundle();
+  if (local) {
+    console.log(`  Using the PawnIO installer already downloaded (${local.bytes} bytes).`);
+    const generated = render([local], []);
+    if (CHECK_ONLY) {
+      const current = existsSync(OUTPUT_PATH) ? readFileSync(OUTPUT_PATH, "utf8") : "";
+      if (current !== generated) {
+        console.error("\nThe generated PawnIO manifest is out of date. Run: npm run pawnio:manifest");
+        process.exit(1);
+      }
+      console.log("\nPawnIO manifest is up to date.");
+      return;
+    }
+    mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
+    writeFileSync(OUTPUT_PATH, generated);
+    console.log(`\nWrote ${path.relative(root, OUTPUT_PATH)} -- 1 approved installer(s).`);
+    return;
+  }
 
   let builds = config.builds ?? [];
 
@@ -105,7 +147,7 @@ async function main() {
   }
 
   for (const build of builds) {
-    process.stdout.write(`  PawnIO ${build.version} … `);
+    process.stdout.write(`  PawnIO ${build.version} ... `);
     try {
       const { bytes, cached } = await fetchArtifact(build.url);
       approved.push({
@@ -124,7 +166,7 @@ async function main() {
       }
       console.log(`verified (${bytes.length} bytes)${cached ? " [cached]" : ""}, bundled`);
     } catch (err) {
-      console.log(`could not verify (${err.message}) — excluded`);
+      console.log(`could not verify (${err.message}) -- excluded`);
       failures.push({ version: build.version, reason: err.message });
     }
   }
@@ -143,7 +185,7 @@ async function main() {
 
   mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   writeFileSync(OUTPUT_PATH, generated);
-  console.log(`\nWrote ${path.relative(root, OUTPUT_PATH)} — ${approved.length} approved installer(s).`);
+  console.log(`\nWrote ${path.relative(root, OUTPUT_PATH)} -- ${approved.length} approved installer(s).`);
 }
 
 function render(approved, failures) {
@@ -152,7 +194,7 @@ function render(approved, failures) {
       failures.map((f) => `//   - ${f.version}: ${f.reason}`).join("\n") +
       "\n//\n"
     : "";
-  return `// GENERATED FILE — DO NOT EDIT BY HAND.
+  return `// GENERATED FILE -- DO NOT EDIT BY HAND.
 //
 // Produced by scripts/pawnio-manifest.mjs, which computes the digest below
 // from the real published bytes. This artifact installs a kernel driver, so
@@ -161,7 +203,7 @@ function render(approved, failures) {
 //
 // Regenerate with:  npm run pawnio:manifest
 //
-${excluded}// With no entry here HARE cannot install PawnIO at all — it can still detect
+${excluded}// With no entry here HARE cannot install PawnIO at all -- it can still detect
 // an install the user did themselves, which is the safe default.
 import type { PinnedArtifact } from "../verifiedDownload.js";
 

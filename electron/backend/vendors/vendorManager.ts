@@ -62,6 +62,8 @@ export class VendorManager {
           controllable: false,
           connected: false,
           message: detected ? "Detected — control not available yet." : "Not detected.",
+          notControllableReason: def.notControllableReason,
+          unverified: false,
           lastCheckedAt: this.lastCheckedAt,
         };
       }
@@ -74,9 +76,10 @@ export class VendorManager {
         detected,
         controllable: true,
         connected,
+        unverified,
         message: connected
           ? unverified
-            ? "Connected — unverified, may not work yet."
+            ? "Connected. This one has never been tested against the real software — tell us whether it works."
             : "Connected."
           : detected
             ? "Detected — connecting…"

@@ -24,6 +24,7 @@ import type {
   LcdScreenState,
   ModeParamsPatch,
   PawnIoStatus,
+  SystemReport,
 } from "./backend/types.js";
 
 /**
@@ -158,8 +159,15 @@ const api = {
   openLogFolder: (): Promise<{ ok: true } | { ok: false; message: string }> =>
     ipcRenderer.invoke(IPC.OPEN_LOG_FOLDER),
   getLogFolder: (): Promise<string> => ipcRenderer.invoke(IPC.GET_LOG_FOLDER),
+  getSystemReport: (): Promise<SystemReport> => ipcRenderer.invoke(IPC.GET_SYSTEM_REPORT),
+  reportEffectProblem: (effectId: string, reason: string | null): void =>
+    ipcRenderer.send(IPC.REPORT_EFFECT_PROBLEM, effectId, reason),
+  openBugReport: (subject: string, body: string): Promise<{ ok: true } | { ok: false; message: string }> =>
+    ipcRenderer.invoke(IPC.OPEN_BUG_REPORT, subject, body),
   openOpenRgb: (): Promise<{ ok: true } | { ok: false; message: string }> =>
     ipcRenderer.invoke(IPC.OPEN_OPENRGB),
+  restartOpenRgb: (): Promise<{ ok: true; message: string } | { ok: false; message: string }> =>
+    ipcRenderer.invoke(IPC.RESTART_OPENRGB),
   getMonitors: (): Promise<KLDisplayInfo[]> => ipcRenderer.invoke(IPC.GET_MONITORS),
   openDashboard: (displayId: number | null): Promise<{ ok: true }> =>
     ipcRenderer.invoke(IPC.OPEN_DASHBOARD, displayId),

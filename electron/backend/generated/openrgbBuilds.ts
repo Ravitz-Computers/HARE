@@ -1,4 +1,4 @@
-// GENERATED FILE — DO NOT EDIT BY HAND.
+// GENERATED FILE -- DO NOT EDIT BY HAND.
 //
 // Produced by scripts/openrgb-manifest.mjs, which computes every digest below
 // from the real downloaded bytes. Hashes are never written by a person: that

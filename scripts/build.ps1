@@ -1,10 +1,18 @@
-#
-# HARE build/install script (Ravitz Computers)
+﻿#
+# HARE installer builder (Ravitz Computers)
 #
 # Run via build.bat at the project root - not meant to be double-clicked
-# directly. Sets up Node.js and OpenRGB if they aren't already present,
-# installs dependencies, builds HARE, packages the Windows installer, and
-# runs it so HARE ends up actually installed with no further clicks.
+# directly.
+#
+# What it produces is ONE FILE: release\HARE-Setup-<version>.exe. That file
+# contains HARE, OpenRGB, the Visual C++ runtime OpenRGB needs, and the
+# PawnIO driver. Copy it to any Windows PC, double-click, done - there is
+# nothing else to download and no second step. Building it is a one-time job
+# for whoever distributes HARE; everyone else just runs the .exe.
+#
+# The build refuses to finish if any of those payloads is missing, because an
+# installer that quietly leaves one out installs fine and then finds no
+# hardware, which looks exactly like HARE being broken.
 #
 # Runs elevated (admin) -- confirmed necessary on real hardware: Windows
 # only grants the filesystem symlink permission electron-builder's Windows
@@ -17,6 +25,12 @@
 #
 # Safe to re-run any time: every step below skips itself if its output
 # already exists.
+
+param(
+    # Skips the "install it here too?" question, for a machine that is only
+    # ever used to build the installer for other people.
+    [switch]$NoInstall
+)
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is much faster with the progress bar off.
@@ -41,8 +55,12 @@ try {
 if (-not $isElevated) {
     Write-Host "HARE's build needs administrator access (Windows requires it for the installer packaging step, and for OpenRGB to reach most RGB hardware) -- requesting it now..." -ForegroundColor Yellow
     try {
+        # The switch has to be carried across, or the elevated copy stops to
+        # ask a question nobody is watching for.
+        $relaunchArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
+        if ($NoInstall) { $relaunchArgs += "-NoInstall" }
         $proc = Start-Process -FilePath "powershell.exe" `
-            -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"") `
+            -ArgumentList $relaunchArgs `
             -Verb RunAs -Wait -PassThru
         exit $proc.ExitCode
     } catch {
@@ -173,6 +191,78 @@ function Resolve-NodeJs {
     return $nodeDir
 }
 
+<#
+    Downloads one file, with Windows' own HTTP stack.
+
+    Node's fetch is what the manifest scripts reach for, and on a lot of real
+    machines it is the thing that fails: a corporate proxy, a TLS-inspecting
+    antivirus, an old certificate store. Invoke-WebRequest inherits the
+    machine's proxy and certificate settings, so this is the path that works
+    where the other one doesn't. The manifests hash whatever lands here, so
+    nothing is trusted just because it arrived.
+#>
+function Get-Payload {
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [string]$Label,
+        [int]$MinimumBytes
+    )
+
+    if ((Test-Path $Destination) -and ((Get-Item $Destination).Length -ge $MinimumBytes)) {
+        Write-Ok "$Label is already downloaded."
+        return $true
+    }
+
+    New-Item -ItemType Directory -Force -Path (Split-Path $Destination -Parent) | Out-Null
+    Write-Info "Downloading $Label..."
+    try {
+        $previous = $ProgressPreference
+        $ProgressPreference = "SilentlyContinue"
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing -MaximumRedirection 10
+        } finally {
+            $ProgressPreference = $previous
+        }
+    } catch {
+        Write-Warn "Couldn't download $Label ($($_.Exception.Message))."
+        if (Test-Path $Destination) { Remove-Item $Destination -Force }
+        return $false
+    }
+
+    if (-not (Test-Path $Destination) -or (Get-Item $Destination).Length -lt $MinimumBytes) {
+        # A blocked download usually arrives as an error page saved under the
+        # right name -- present, and useless.
+        Write-Warn "$Label downloaded but the file is too small to be real."
+        if (Test-Path $Destination) { Remove-Item $Destination -Force }
+        return $false
+    }
+
+    Write-Ok "$Label is ready."
+    return $true
+}
+
+function Resolve-PawnIo {
+    $dest = Join-Path $Root "vendor\pawnio\PawnIO-Setup.exe"
+    # Resolved from the release list so it's whatever is current, with a
+    # known-good link behind it when GitHub's API can't be reached.
+    $url = $null
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/namazso/PawnIO.Setup/releases/latest" -Headers @{ "User-Agent" = "HARE-build" }
+        $asset = $release.assets | Where-Object { $_.name -match '(?i)\.exe$' } | Select-Object -First 1
+        if ($asset) { $url = $asset.browser_download_url }
+    } catch {
+        Write-Info "Couldn't reach the PawnIO release list; using the published installer link."
+    }
+    if (-not $url) { $url = "https://pawnio.eu/PawnIO-Setup.exe" }
+    return (Get-Payload -Url $url -Destination $dest -Label "the PawnIO driver" -MinimumBytes 100000)
+}
+
+function Resolve-Redist {
+    $dest = Join-Path $Root "vendor\redist\vc_redist.x64.exe"
+    return (Get-Payload -Url "https://aka.ms/vs/17/release/vc_redist.x64.exe" -Destination $dest -Label "the Visual C++ runtime" -MinimumBytes 1000000)
+}
+
 function Resolve-OpenRgb {
     $openRgbDir = Join-Path $Root "vendor\openrgb"
     $openRgbExe = Join-Path $openRgbDir "OpenRGB.exe"
@@ -249,22 +339,69 @@ try {
     if ($npmInstallExit -ne 0) { throw "npm install failed with exit code $npmInstallExit (see the output above)." }
     Write-Ok "Dependencies installed."
 
-    Write-Step "[3/4] Checking for OpenRGB (the engine HARE drives behind the scenes)..."
+    Write-Step "[3/5] Collecting everything the installer has to contain..."
     Resolve-OpenRgb
+    $pawnIoOk = Resolve-PawnIo
+    $redistOk = Resolve-Redist
+    if (-not $pawnIoOk -or -not $redistOk) {
+        Write-Info "One of those didn't download. The build will say exactly what's missing in a moment."
+    }
 
-    Write-Step "[4/4] Building HARE and packaging the installer (this is the slow part)..."
+    Write-Step "[4/5] Building HARE (this is the slow part)..."
+    # Says up front whether the result will be signed, so nobody watches a
+    # ten-minute build to find out at the end.
+    Invoke-Logged -Command "npm" -Arguments @("run", "sign:status") | Out-Null
     $packageExit = Invoke-Logged -Command "npm" -Arguments @("run", "package:win")
     if ($packageExit -ne 0) { throw "The build/package step failed with exit code $packageExit (see the output above)." }
-    Write-Ok "Build complete."
 
-    Write-Step "Installing HARE on this PC..."
+    Write-Step "[5/5] Checking the finished installer..."
     $installer = Get-ChildItem -Path (Join-Path $Root "release") -Filter "HARE-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $installer) {
         throw "Build finished but no installer (HARE-Setup-*.exe) was found in the release folder."
     }
-    Write-Info "Running $($installer.Name)..."
-    Start-Process -FilePath $installer.FullName -Wait
-    Write-Ok "HARE is installed. Look for it on your Desktop or in the Start Menu."
+    # The payloads add up to well over a hundred megabytes. An installer much
+    # smaller than that built without them, whatever else it says.
+    $sizeMb = [math]::Round($installer.Length / 1MB, 1)
+    if ($installer.Length -lt 120MB) {
+        throw "The installer is only $sizeMb MB, which is too small to contain OpenRGB, the Visual C++ runtime and the driver. Something was left out -- check the messages above."
+    }
+    Write-Ok "$($installer.Name) -- $sizeMb MB, everything inside."
+
+    # Signed or not is the difference between "Windows shows Ravitz Computers"
+    # and "Windows protected your PC", so it is said out loud either way rather
+    # than left for someone to discover after they have handed the file out.
+    $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+    if ($signature.Status -eq "Valid") {
+        Write-Ok "Signed by: $($signature.SignerCertificate.Subject)"
+    } else {
+        Write-Warn "This installer is NOT signed. Windows will show a SmartScreen warning to whoever runs it."
+        Write-Info "SIGNING.md explains the options -- Azure Artifact Signing is about `$10 a month, SignPath is free for open source."
+    }
+
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host "  Your installer is ready:" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "    $($installer.FullName)"
+    Write-Host ""
+    Write-Host "  That one file is all anyone needs. Copy it to any Windows PC," -ForegroundColor Green
+    Write-Host "  double-click it, and HARE installs -- nothing else to download." -ForegroundColor Green
+    Write-Host "================================================================" -ForegroundColor Green
+    Write-Host ""
+
+    if (-not $NoInstall) {
+        $answer = Read-Host "Install HARE on this PC now as well? [Y/n]"
+        if ($answer -eq "" -or $answer -match '^(?i)y') {
+            Write-Info "Running $($installer.Name)..."
+            Start-Process -FilePath $installer.FullName -Wait
+            Write-Ok "HARE is installed. Look for it on your Desktop or in the Start Menu."
+        } else {
+            Write-Info "Skipped. The installer is still waiting in the release folder."
+        }
+    }
+
+    # Opening the folder means nobody has to go hunting for the file.
+    try { Start-Process -FilePath "explorer.exe" -ArgumentList "/select,`"$($installer.FullName)`"" } catch { }
 
     Stop-BuildLog
     exit 0

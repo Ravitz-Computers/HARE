@@ -1,6 +1,11 @@
 import {
+  DASHBOARD_COLUMNS,
   DASHBOARD_WIDGETS,
+  DEFAULT_DASHBOARD_BACKGROUND,
   DEFAULT_DASHBOARD_SETTINGS,
+  type DashboardBackground,
+  type WidgetSpanH,
+  type WidgetSpanW,
   type DashboardSettings,
   type DashboardWidgetId,
   type DashboardWidgetPlacement,
@@ -74,8 +79,50 @@ const KNOWN_WIDGETS = new Set<string>(DASHBOARD_WIDGETS.map((w) => w.id));
  * render as a blank card.
  */
 /** A size a widget is actually allowed to be. */
-function clampSpan(value: unknown): 1 | 2 {
-  return value === 2 ? 2 : 1;
+function clampWidth(value: unknown): WidgetSpanW {
+  const n = Math.round(Number(value));
+  if (n >= 1 && n <= DASHBOARD_COLUMNS) return n as WidgetSpanW;
+  return 1;
+}
+
+function clampHeight(value: unknown): WidgetSpanH {
+  const n = Math.round(Number(value));
+  if (n >= 1 && n <= MAX_WIDGET_ROWS) return n as WidgetSpanH;
+  return 1;
+}
+
+/** How tall a widget may be. Beyond three rows nothing fits on a small panel. */
+export const MAX_WIDGET_ROWS = 3;
+
+/**
+ * A colour a widget may be tinted, or null.
+ *
+ * Only `#rrggbb` is accepted. These strings reach a stylesheet, and the one
+ * place a settings file becomes something the interface executes is exactly
+ * the place to be strict about it.
+ */
+function cleanAccent(value: unknown): string | null {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : null;
+}
+
+/** Reads a saved background, replacing anything malformed with HARE's own. */
+export function normalizeBackground(value: unknown): DashboardBackground {
+  const raw = value as Partial<{ kind: string; color: string; image: string; fit: string; dim: number }> | null;
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_DASHBOARD_BACKGROUND };
+  if (raw.kind === "none") return { kind: "none" };
+  if (raw.kind === "color") {
+    const color = cleanAccent(raw.color);
+    return color ? { kind: "color", color } : { ...DEFAULT_DASHBOARD_BACKGROUND };
+  }
+  if (raw.kind === "image") {
+    // Only a data URL for an image. A settings file is not a place from which
+    // the dashboard should be fetching anything.
+    const image = typeof raw.image === "string" ? raw.image : "";
+    if (!/^data:image\/(png|jpeg|webp);base64,/.test(image)) return { ...DEFAULT_DASHBOARD_BACKGROUND };
+    const dim = typeof raw.dim === "number" && raw.dim >= 0 && raw.dim <= 90 ? Math.round(raw.dim) : 35;
+    return { kind: "image", image, fit: raw.fit === "contain" ? "contain" : "cover", dim };
+  }
+  return { ...DEFAULT_DASHBOARD_BACKGROUND };
 }
 
 /**
@@ -102,10 +149,15 @@ export function normalizeWidgetPlacements(value: unknown): DashboardWidgetPlacem
 
     if (typeof entry === "string") {
       const fallback = defaults.get(id as DashboardWidgetId);
-      out.push({ id: id as DashboardWidgetId, w: fallback?.w ?? 1, h: fallback?.h ?? 1 });
+      out.push({ id: id as DashboardWidgetId, w: fallback?.w ?? 1, h: fallback?.h ?? 1, accent: null });
     } else {
       const placement = entry as Partial<DashboardWidgetPlacement>;
-      out.push({ id: id as DashboardWidgetId, w: clampSpan(placement.w), h: clampSpan(placement.h) });
+      out.push({
+        id: id as DashboardWidgetId,
+        w: clampWidth(placement.w),
+        h: clampHeight(placement.h),
+        accent: cleanAccent(placement.accent),
+      });
     }
   }
   return out;
@@ -123,6 +175,8 @@ export function normalizeDashboardSettings(value: unknown): DashboardSettings {
       ? [...new Set(raw.hiddenDisplayIds.filter((id): id is number => typeof id === "number"))]
       : [],
     clock24h: typeof raw.clock24h === "boolean" ? raw.clock24h : DEFAULT_DASHBOARD_SETTINGS.clock24h,
+    locked: typeof raw.locked === "boolean" ? raw.locked : DEFAULT_DASHBOARD_SETTINGS.locked,
+    background: normalizeBackground(raw.background),
   };
 }
 
@@ -150,4 +204,21 @@ export function nextSpan(placement: DashboardWidgetPlacement): DashboardWidgetPl
   if (placement.w === 1 && placement.h === 1) return { ...placement, w: 2, h: 1 };
   if (placement.w === 2 && placement.h === 1) return { ...placement, w: 2, h: 2 };
   return { ...placement, w: 1, h: 1 };
+}
+
+/** Sets a widget's size directly, which is what the width and height controls do. */
+export function withSpan(
+  placement: DashboardWidgetPlacement,
+  w: unknown,
+  h: unknown
+): DashboardWidgetPlacement {
+  return { ...placement, w: clampWidth(w), h: clampHeight(h) };
+}
+
+/** Sets a widget's accent, or clears it back to HARE's own. */
+export function withAccent(
+  placement: DashboardWidgetPlacement,
+  accent: string | null
+): DashboardWidgetPlacement {
+  return { ...placement, accent: cleanAccent(accent) };
 }

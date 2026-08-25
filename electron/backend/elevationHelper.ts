@@ -228,6 +228,33 @@ export class ElevationHelper {
   }
 
   /** Whether the logon task exists. Cheap, unelevated, and safe to call often. */
+  /**
+   * The command the registered task will actually run, if any.
+   *
+   * This matters because the task survives a *reinstall to a different
+   * place*. HARE used to install per-user into AppData and now installs into
+   * Program Files, so a task registered by the old build still points at an
+   * executable that no longer exists — it reports as installed, runs, launches
+   * nothing, and HARE sees "the task is there" and doesn't start its own
+   * copy. The result is no OpenRGB server at all, with everything claiming to
+   * be fine.
+   */
+  async registeredCommand(): Promise<string | null> {
+    if (process.platform !== "win32") return null;
+    const { code, stdout } = await this.runner.run("schtasks.exe", [
+      "/Query",
+      "/TN",
+      OPENRGB_TASK_NAME,
+      "/FO",
+      "LIST",
+      "/V",
+    ]);
+    if (code !== 0) return null;
+    // The verbose listing puts it on a "Task To Run:" line.
+    const match = /Task To Run:\s*(.+)/i.exec(stdout);
+    return match ? match[1].trim() : null;
+  }
+
   async isEnabled(): Promise<boolean> {
     if (process.platform !== "win32") return false;
     const { code } = await this.runner.run("schtasks.exe", ["/Query", "/TN", OPENRGB_TASK_NAME]);
@@ -316,5 +343,26 @@ export class ElevationHelper {
     if (process.platform !== "win32") return { ok: true };
     const { code, stderr } = await this.runner.run("schtasks.exe", ["/Run", "/TN", OPENRGB_TASK_NAME]);
     return code === 0 ? { ok: true } : { ok: false, message: stderr.trim() || "Couldn't start it." };
+  }
+
+  /**
+   * Stops the OpenRGB the logon task started, and starts it again.
+   *
+   * This is the only way HARE can restart that server. HARE runs unelevated
+   * deliberately, and the task's OpenRGB runs with highest privileges, so
+   * `taskkill` from here is refused -- but ending and re-running the task is
+   * something the account that registered it is allowed to do.
+   *
+   * `/End` is best-effort: it fails harmlessly when nothing is running, and
+   * the point is only that the port is free before `/Run` starts a new one.
+   */
+  async restartServer(): Promise<ElevationResult> {
+    if (process.platform !== "win32") return { ok: true };
+    await this.runner.run("schtasks.exe", ["/End", "/TN", OPENRGB_TASK_NAME]);
+    // The task ending and the socket closing are not the same moment, and
+    // starting into a port that is still held gives a second server that
+    // binds nothing -- which looks exactly like the fault being restarted.
+    await new Promise((r) => setTimeout(r, 1200));
+    return this.startNow();
   }
 }

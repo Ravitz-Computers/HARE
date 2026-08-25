@@ -46,6 +46,11 @@ export const ALLOWED_DOWNLOAD_HOSTS: readonly string[] = [
   // pinned to a digest generated from the real bytes, so this widens where a
   // verified artifact may come from — never what may be run unverified.
   "pawnio.eu",
+  // Microsoft's permanent address for the Visual C++ runtime, and the CDN it
+  // redirects to. OpenRGB is built against that runtime and won't start
+  // without it.
+  "aka.ms",
+  "download.visualstudio.microsoft.com",
 ];
 
 /** Redirect hops to follow before giving up — enough for normal CDN handoffs, few enough to bound a redirect loop. */

@@ -84,7 +84,9 @@ export async function installPawnIo(): Promise<PawnIoInstallResult> {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   } finally {
     // The installer is never kept: leaving a downloaded executable behind is
-    // both clutter and a small liability.
-    await fs.rm(targetPath, { force: true }).catch(() => {});
+    // both clutter and a small liability. The directory goes with it — it was
+    // created here, and an empty folder left in everyone's temp is exactly
+    // the kind of trace that adds up.
+    await fs.rm(targetDir, { recursive: true, force: true }).catch(() => {});
   }
 }

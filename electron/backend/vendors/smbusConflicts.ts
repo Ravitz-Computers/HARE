@@ -16,6 +16,18 @@ import { listWindowsProcessNames } from "./vendorDetection.js";
  * completely invisible unless something goes looking for it. So HARE looks,
  * and says so plainly, with the fix.
  *
+ * WHY A SECOND OPENRGB ISN'T LISTED HERE
+ *
+ * Two OpenRGB instances genuinely do conflict — they can't both hold a USB
+ * device, and the second one's writes are accepted, echoed back on read, and
+ * reach no hardware. That really was the cause of a real bug.
+ *
+ * But HARE *launches* OpenRGB, so `openrgb.exe` is always running, and
+ * matching on the process name flagged HARE's own copy on a perfectly healthy
+ * system. Detecting this properly means counting instances (or excluding the
+ * child HARE started by its process id) rather than asking whether the name
+ * appears at all — until that exists, no warning is better than a wrong one.
+ *
  * This is deliberately NOT the modules list. A module is something the user
  * installs to gain a capability; this is a diagnosis with one action attached
  * ("close that app"). Listing these as modules would be exactly the kind of

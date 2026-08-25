@@ -5,7 +5,14 @@ import { DEFAULT_DASHBOARD_SETTINGS, type AppSettings } from "./types.js";
 import { normalizeDashboardSettings } from "./dashboardLayout.js";
 
 const DEFAULTS: AppSettings = {
-  launchOnStartup: false,
+  // On by default. HARE exists to keep your lighting how you left it, and a
+  // lighting app that only runs when you remember to open it doesn't do that
+  // — your PC boots dark until you notice. Turning it off is one switch in
+  // Settings; an existing settings file keeps whatever it already says.
+  launchOnStartup: true,
+  // ...and when Windows is the one starting it, it goes to the tray. Nobody
+  // wants a window in their face at logon.
+  startMinimized: true,
   // "system" (the default) means "match Windows" — see main.ts, which
   // drives Electron's nativeTheme.themeSource from this on startup and on
   // every change.
@@ -14,6 +21,7 @@ const DEFAULTS: AppSettings = {
   hasCompletedOnboarding: false,
   hasAskedForHardwareAccess: false,
   diagnosticLogging: false,
+  screenGauges: {},
 };
 
 /**
@@ -34,7 +42,15 @@ export class AppSettingsStore {
     try {
       const raw = await fs.readFile(this.filePath, "utf-8");
       const parsed = JSON.parse(raw) as Partial<AppSettings>;
-      this.settings = { ...DEFAULTS, ...parsed, dashboard: normalizeDashboardSettings(parsed.dashboard) };
+      this.settings = {
+        ...DEFAULTS,
+        ...parsed,
+        dashboard: normalizeDashboardSettings(parsed.dashboard),
+        // A file written before screen readouts existed has no key at all,
+        // and the spread would leave it undefined rather than absent.
+        screenGauges:
+          typeof parsed.screenGauges === "object" && parsed.screenGauges !== null ? parsed.screenGauges : {},
+      };
     } catch {
       // First run, or a missing/corrupted file — defaults are fine, and
       // we'll write a fresh valid copy the next time anything changes.

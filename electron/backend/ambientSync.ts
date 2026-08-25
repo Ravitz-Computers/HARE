@@ -29,7 +29,16 @@ export class AmbientSyncController {
 
   constructor(
     private onSample: (bands: KLColor[]) => void,
-    private fps = 8
+    private fps = 8,
+    /**
+     * Told when capture starts failing, and when it recovers.
+     *
+     * Screen capture can be refused — by Windows, or by security software
+     * that treats it as screen recording. Every failure used to be a console
+     * warning, so the effect stayed selected, the lights held their last
+     * colour, and nothing anywhere said why.
+     */
+    private onProblem: (reason: string | null) => void = () => {}
   ) {}
 
   /**
@@ -74,15 +83,22 @@ export class AmbientSyncController {
       // Falls back to the first screen if the chosen one has been unplugged,
       // rather than going dark with no explanation.
       const screen = sources[this.displayIndex] ?? sources[0];
-      if (!screen || screen.thumbnail.isEmpty()) return;
+      if (!screen || screen.thumbnail.isEmpty()) {
+        this.onProblem("Windows returned no screen to sample. Ambient Glow needs a screen it's allowed to read.");
+        return;
+      }
       const size = screen.thumbnail.getSize();
       this.onSample(sampleBands(screen.thumbnail.toBitmap(), size, BAND_COUNT));
+      this.onProblem(null);
     } catch (err) {
       // Non-fatal — most likely screen-recording permission hasn't been
       // granted yet on this PC (macOS-style prompts aside, some Windows
       // security software gates this too). Ambient Sync just stays idle
       // until the next successful sample instead of crashing HARE.
       console.warn("[HARE] Ambient sync sample failed:", err);
+      this.onProblem(
+        "HARE can't read the screen. Security software often blocks screen capture — allowing it for HARE fixes this."
+      );
     } finally {
       this.sampling = false;
     }

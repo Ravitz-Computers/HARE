@@ -43,7 +43,7 @@ await rm(path.join(__dirname, "..", "dist-electron", "preload.js"), { force: tru
 
 // The input hook runs in a forked child process (see inputHook.ts for why),
 // and its host script is hand-written CommonJS rather than something tsc
-// compiles — so it has to be copied into the build output explicitly, or the
+// compiles -- so it has to be copied into the build output explicitly, or the
 // packaged app forks a path that doesn't exist and the Reactive effect
 // silently never responds to input.
 await copyFile(

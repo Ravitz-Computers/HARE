@@ -9,12 +9,12 @@
 // dependency tree (`npm ls --omit=dev`), reads each package's own license
 // declaration and license file off disk, and emits the result verbatim.
 //
-// Dev-only dependencies are deliberately excluded — they build the app but
+// Dev-only dependencies are deliberately excluded -- they build the app but
 // are never distributed inside it, so their licenses impose no obligation on
 // anyone who installs HARE.
 //
 // Things this cannot discover on its own, because they aren't npm packages,
-// are listed in MANUAL_ENTRIES below — most importantly OpenRGB, which HARE
+// are listed in MANUAL_ENTRIES below -- most importantly OpenRGB, which HARE
 // redistributes as a bundled binary under the GPL-2.0. See LICENSE-NOTES.md.
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,10 +27,21 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  * Bundled components that are not npm packages, and so can't be discovered
  * from the dependency tree. Each still carries real obligations.
  */
+/** Which OpenRGB is staged for packaging, or an honest placeholder if none is. */
+function bundledOpenRgbVersion() {
+  const stamped = path.join(root, "vendor", "openrgb", "version.txt");
+  if (fs.existsSync(stamped)) return fs.readFileSync(stamped, "utf8").trim();
+  return "see the release this installer came from";
+}
+
 const MANUAL_ENTRIES = [
   {
     name: "OpenRGB",
-    version: "bundled portable Windows build (see vendor/openrgb/)",
+    // The exact build this installer carries, read from what was actually
+    // staged rather than typed here -- "corresponding source" means the source
+    // for the binary that shipped, so a version nobody kept up to date would
+    // be worse than no version at all.
+    version: bundledOpenRgbVersion(),
     license: "GPL-2.0-only",
     homepage: "https://openrgb.org/",
     source: "https://gitlab.com/CalcProgrammer1/OpenRGB",
@@ -38,8 +49,9 @@ const MANUAL_ENTRIES = [
     note:
       "HARE redistributes an unmodified upstream OpenRGB binary and drives it as a separate " +
       "background process over its documented network SDK protocol. The full GPL-2.0 text is " +
-      "included at licenses/GPL-2.0.txt, and complete corresponding source is available from the " +
-      "project link above. See LICENSE-NOTES.md for the full explanation of this arrangement.",
+      "included at licenses/GPL-2.0.txt. Complete corresponding source for this exact build is " +
+      "attached to the HARE release it shipped with, and is also covered by the written offer in " +
+      "LICENSE-NOTES.md, which stands for three years from the date of distribution.",
   },
   {
     name: "Electron",
@@ -63,10 +75,11 @@ const MANUAL_ENTRIES = [
     note:
       "A signed kernel driver that OpenRGB uses from 1.0rc2 onward to reach the SMBus, which is " +
       "what motherboard and RAM lighting lives on. HARE redistributes the official installer " +
-      "unmodified and runs it, visibly, only when the user asks — it never links against the " +
+      "unmodified and runs it, visibly, only when the user asks -- it never links against the " +
       "driver or calls it directly; OpenRGB does. The full GPL-2.0 text is included at " +
       "licenses/GPL-2.0.txt, and complete corresponding source is available from the project " +
-      "link above and from https://github.com/namazso/PawnIO.Setup.",
+      "link above and from https://github.com/namazso/PawnIO.Setup. It is also covered by the " +
+      "written offer in LICENSE-NOTES.md, which stands for three years from the date of distribution.",
   },
   {
     name: "hidapi",
@@ -81,7 +94,7 @@ const MANUAL_ENTRIES = [
 ];
 
 /**
- * Software HARE talks to, is written from, or asks the user to install — but
+ * Software HARE talks to, is written from, or asks the user to install -- but
  * never ships.
  *
  * None of these put a file in the installer, so none of them attaches a
@@ -100,7 +113,7 @@ const RUNTIME_ENTRIES = [
     note:
       "HARE's NZXT Kraken screen and status support was written from liquidctl's kraken3 " +
       "driver, which is the community reference for that protocol. No liquidctl code is " +
-      "copied or shipped — what was taken is the protocol description: report ids, byte " +
+      "copied or shipped -- what was taken is the protocol description: report ids, byte " +
       "offsets and message sequences, which are facts about the hardware rather than " +
       "expression. This is credited here because that reading is a judgement, the work is " +
       "genuinely owed to that project either way, and anyone auditing HARE should be able to " +
@@ -108,7 +121,7 @@ const RUNTIME_ENTRIES = [
   },
   {
     name: "NVIDIA Management Library (NVML)",
-    license: "Proprietary — part of the NVIDIA display driver",
+    license: "Proprietary -- part of the NVIDIA display driver",
     homepage: "https://developer.nvidia.com/nvidia-management-library-nvml",
     note:
       "HARE reads GPU temperature, load, fan and power by calling nvml.dll, which the user's " +
@@ -117,7 +130,7 @@ const RUNTIME_ENTRIES = [
   },
   {
     name: "AMD Display Library (ADL)",
-    license: "Proprietary — part of the AMD graphics driver",
+    license: "Proprietary -- part of the AMD graphics driver",
     homepage: "https://gpuopen.com/adl/",
     note:
       "Same arrangement as NVML: HARE calls atiadlxx.dll from the user's own driver install " +
@@ -129,13 +142,13 @@ const RUNTIME_ENTRIES = [
     homepage: "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor",
     note:
       "When the user already runs it, HARE reads the sensor values it publishes to a WMI " +
-      "namespace. No LibreHardwareMonitor code is used, linked or shipped — this is one " +
+      "namespace. No LibreHardwareMonitor code is used, linked or shipped -- this is one " +
       "program reading data another chose to publish. Credited because that data is what " +
       "gives HARE CPU and fan sensors at all.",
   },
   {
     name: "HWiNFO",
-    license: "Proprietary — free for personal use",
+    license: "Proprietary -- free for personal use",
     homepage: "https://www.hwinfo.com/",
     note:
       "HARE reads the gadget sensor values HWiNFO optionally writes to the registry. Nothing " +
@@ -223,18 +236,18 @@ function render(packages) {
   );
   lines.push("");
   lines.push(
-    "> This file is generated by `npm run notices` from the packages actually installed — " +
+    "> This file is generated by `npm run notices` from the packages actually installed -- " +
       "don't edit it by hand. Components that aren't npm packages (OpenRGB, Electron's embedded " +
       "Chromium, vendored C libraries) are listed first and maintained in `scripts/generate-notices.mjs`."
   );
   lines.push("");
-  lines.push("HARE's own source code is licensed separately — see `LICENSE`.");
+  lines.push("HARE's own source code is licensed separately -- see `LICENSE`.");
   lines.push("");
   lines.push("## Software HARE uses but does not ship");
   lines.push("");
   lines.push(
     "None of these are included in a HARE release. They are the programs HARE talks to, is " +
-      "written from, or offers to install for you — listed so that what HARE is made of is " +
+      "written from, or offers to install for you -- listed so that what HARE is made of is " +
       "answerable without unzipping the installer."
   );
   lines.push("");
@@ -278,7 +291,7 @@ function render(packages) {
   lines.push("### Full notices");
   lines.push("");
   for (const p of packages) {
-    lines.push(`#### ${p.name} — ${p.license}`);
+    lines.push(`#### ${p.name} -- ${p.license}`);
     lines.push("");
     if (p.homepage) lines.push(`${p.homepage}`);
     lines.push("");
@@ -304,7 +317,7 @@ const packages = collect();
 const out = render(packages);
 fs.writeFileSync(path.join(root, "THIRD-PARTY-NOTICES.md"), out + "\n");
 console.log(
-  `Wrote THIRD-PARTY-NOTICES.md — ${packages.length} npm packages + ${MANUAL_ENTRIES.length} bundled components + ${RUNTIME_ENTRIES.length} used-not-shipped.`
+  `Wrote THIRD-PARTY-NOTICES.md -- ${packages.length} npm packages + ${MANUAL_ENTRIES.length} bundled components + ${RUNTIME_ENTRIES.length} used-not-shipped.`
 );
 
 const unknown = packages.filter((p) => p.license === "UNKNOWN");

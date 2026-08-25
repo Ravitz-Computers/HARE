@@ -25,12 +25,27 @@ export interface DashboardWindowOptions {
   preloadPath: string;
   /** Absolute path to the built index.html, used in packaged builds. */
   indexHtmlPath: string;
-  /** Applied to the dashboard window too, so it doesn't inherit Electron's default icon. */
+  /**
+   * The dashboard's own icon, distinct from HARE's.
+   *
+   * It gets its own taskbar button (see setAppDetails below), and sharing
+   * HARE's icon meant two identical buttons -- one of them a frameless
+   * fullscreen window, which reads as a stray dialog someone left open.
+   */
   iconPath: string | undefined;
   /** Called whenever the window opens or closes, so settings can be kept in step. */
   onChange: (open: boolean) => void;
   /** Same navigation guards the main window gets — see main.ts. */
   applyGuards: (win: BrowserWindow) => void;
+  /**
+   * Whether the dashboard should be see-through, so the desktop shows behind
+   * the widgets.
+   *
+   * Read when the window is created and never after: Electron fixes a
+   * window's transparency at construction, which is why switching this
+   * closes and reopens the screen rather than changing it in place.
+   */
+  isTransparent: () => boolean;
 }
 
 export class DashboardWindow {
@@ -60,6 +75,7 @@ export class DashboardWindow {
     }
 
     const target = this.resolveDisplay(displayId);
+    const transparent = this.opts.isTransparent();
 
     this.win = new BrowserWindow({
       // Positioned into the target display's bounds rather than opened and
@@ -69,7 +85,13 @@ export class DashboardWindow {
       width: target.bounds.width,
       height: target.bounds.height,
       frame: false,
-      backgroundColor: "#0b0810",
+      transparent,
+      // Its own entry rather than a second window grouped under HARE's, so
+      // it can be switched to and closed like the separate thing it is.
+      skipTaskbar: false,
+      // A transparent window with an opaque background colour is just an
+      // opaque window, so the colour goes away with it.
+      ...(transparent ? {} : { backgroundColor: "#0b0810" }),
       title: "HARE Dashboard",
       icon: this.opts.iconPath,
       // Not always-on-top: this owns a whole display, so forcing it above
@@ -85,8 +107,28 @@ export class DashboardWindow {
 
     this.opts.applyGuards(this.win);
 
+    // Windows groups taskbar buttons by AppUserModelID and takes the button's
+    // icon from the same place. Giving the dashboard its own id separates it
+    // from HARE's window and lets it carry its own badge; without this the
+    // two share a button and the frameless one looks like a dialog nobody
+    // closed. No-op on anything that isn't Windows.
+    try {
+      this.win.setAppDetails({
+        appId: "com.ravitzcomputers.hare.dashboard",
+        relaunchDisplayName: "HARE Widget Screen",
+        ...(this.opts.iconPath ? { appIconPath: this.opts.iconPath, appIconIndex: 0 } : {}),
+      });
+    } catch {
+      // Windows-only API. Nothing to do elsewhere, and nothing worth saying.
+    }
+
+    this.win.setTitle("HARE Widget Screen");
+
     this.win.once("ready-to-show", () => {
-      this.win?.setFullScreen(true);
+      // A transparent window can't go fullscreen on Windows without losing
+      // its transparency, so it's sized to the display's full bounds
+      // instead — the same result, minus the flicker.
+      if (!transparent) this.win?.setFullScreen(true);
       this.win?.show();
     });
 
@@ -110,9 +152,10 @@ export class DashboardWindow {
     const target = this.resolveDisplay(displayId);
     // Fullscreen has to come off before a move, or the window stays stuck on
     // its original display.
-    this.win.setFullScreen(false);
+    const wasFullScreen = this.win.isFullScreen();
+    if (wasFullScreen) this.win.setFullScreen(false);
     this.win.setBounds(target.bounds);
-    this.win.setFullScreen(true);
+    if (wasFullScreen) this.win.setFullScreen(true);
   }
 
   close(): void {

@@ -7,7 +7,7 @@
 // HARE downloads OpenRGB and then executes it, so it must only ever install
 // bytes it can verify. That means every approved build needs a pinned digest.
 //
-// The obvious way to do that — write the hash into the source by hand — is a
+// The obvious way to do that -- write the hash into the source by hand -- is a
 // trap: it is a step someone has to remember on every release, forever, and
 // the failure mode when they forget is either a broken updater or, far worse,
 // a placeholder that quietly disables the check. So no hash is ever written
@@ -79,7 +79,7 @@ async function fetchArtifact(url) {
 
 /** Asks the API what the newest release is, and adds it to the config if it isn't already there. */
 async function syncLatest(config) {
-  process.stdout.write("Checking for a newer OpenRGB release… ");
+  process.stdout.write("Checking for a newer OpenRGB release... ");
   let release;
   try {
     const res = await fetch(RELEASES_API, { signal: AbortSignal.timeout(15000) });
@@ -103,7 +103,7 @@ async function syncLatest(config) {
   }
 
   // The URL from the API is only ever a *candidate*. It's checked against the
-  // allowlist here, and whatever it returns is hashed from the real bytes —
+  // allowlist here, and whatever it returns is hashed from the real bytes --
   // the API never gets to decide what HARE will install, only to suggest a
   // version worth looking at.
   try {
@@ -132,17 +132,17 @@ async function main() {
   const failures = [];
 
   for (const build of config.builds) {
-    process.stdout.write(`  ${build.version} … `);
+    process.stdout.write(`  ${build.version} ... `);
     try {
       const { bytes, cached } = await fetchArtifact(build.url);
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       approved.push({ version: build.version, url: build.url, sha256, bytes: bytes.length });
-      console.log(`${sha256.slice(0, 16)}… (${bytes.length} bytes)${cached ? " [cached]" : ""}`);
+      console.log(`${sha256.slice(0, 16)}... (${bytes.length} bytes)${cached ? " [cached]" : ""}`);
     } catch (err) {
       // Not fatal. An unverifiable build is simply left out, which means HARE
-      // will refuse to install it — the safe outcome. Failing the whole build
+      // will refuse to install it -- the safe outcome. Failing the whole build
       // here would mean an offline machine can't compile at all.
-      console.log(`could not verify (${err.message}) — excluded`);
+      console.log(`could not verify (${err.message}) -- excluded`);
       failures.push({ version: build.version, reason: err.message });
     }
   }
@@ -161,7 +161,7 @@ async function main() {
 
   mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   writeFileSync(OUTPUT_PATH, generated);
-  console.log(`\nWrote ${path.relative(root, OUTPUT_PATH)} — ${approved.length} approved build(s).`);
+  console.log(`\nWrote ${path.relative(root, OUTPUT_PATH)} -- ${approved.length} approved build(s).`);
   if (failures.length > 0) {
     console.log(`${failures.length} could not be verified and were excluded. They will not be installed.`);
   }
@@ -174,7 +174,7 @@ function renderModule(approved, failures) {
         .map((f) => ` *   - ${f.version}: ${f.reason}`)
         .join("\n")}\n *\n`
     : "";
-  return `// GENERATED FILE — DO NOT EDIT BY HAND.
+  return `// GENERATED FILE -- DO NOT EDIT BY HAND.
 //
 // Produced by scripts/openrgb-manifest.mjs, which computes every digest below
 // from the real downloaded bytes. Hashes are never written by a person: that

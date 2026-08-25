@@ -244,7 +244,13 @@ export class MysticLightClient {
     const g = clampByte(color.g);
     const b = clampByte(color.b);
 
+    // The SDK's return code is what says whether an LED actually changed.
+    // This used to count attempts instead — `wrote++` right after the call,
+    // with the result discarded — so "Test" reported success on a machine
+    // where every single write had failed, and the lights not changing looked
+    // like a HARE bug rather than an SDK one.
     let wrote = 0;
+    let lastError = 0;
     for (const device of this.devices) {
       // A fresh BSTR per device, freed immediately after use — the SDK copies
       // what it needs, and leaking one per call on a 30fps effect loop would
@@ -252,17 +258,23 @@ export class MysticLightClient {
       const bstr = this.sysAllocString(toWideBuffer(device.type));
       try {
         for (let index = 0; index < device.ledCount; index++) {
-          this.setLedColor(bstr, index, r, g, b);
-          wrote++;
+          const code = this.setLedColor(bstr, index, r, g, b);
+          // MSI's SDK returns 0 for success and a negative code for failure.
+          if (typeof code === "number" && code < 0) lastError = code;
+          else wrote++;
         }
       } finally {
         this.sysFreeString?.(bstr);
       }
     }
 
-    return wrote > 0
-      ? { ok: true }
-      : { ok: false, message: "Mystic Light accepted the connection but nothing was lit." };
+    if (wrote > 0) return { ok: true };
+    return {
+      ok: false,
+      message: lastError
+        ? `Mystic Light refused every write (SDK error ${lastError}). MSI Center must be running, and HARE has to be started as administrator for its SDK to accept anything.`
+        : "Mystic Light accepted the connection but nothing was lit.",
+    };
   }
 
   async disconnect(): Promise<void> {

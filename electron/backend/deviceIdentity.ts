@@ -29,6 +29,9 @@ export function isDevicePreference(value: unknown): value is DevicePreference {
   const v = value as Record<string, unknown>;
   if (v.kind === "color") return isColor(v.color);
   if (v.kind === "mode") return typeof v.modeId === "number";
+  // A painting. Every entry has to be a colour: one bad element would be
+  // written to the hardware as undefined on the next boot.
+  if (v.kind === "raw") return Array.isArray(v.colors) && v.colors.length > 0 && v.colors.every(isColor);
   if (v.kind === "effect") {
     const a = v.assignment as Record<string, unknown> | undefined;
     return (

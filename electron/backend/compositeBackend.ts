@@ -21,7 +21,13 @@ export class CompositeBackend implements DeviceBackend {
   readonly kind = "openrgb" as const;
 
   constructor(
-    private readonly primary: DeviceBackend,
+    /**
+     * Readable from outside so a caller can reach the real OpenRGB backend
+     * for the few things that are about the *server* rather than about
+     * devices -- restarting it, in particular. Everything else goes through
+     * the wrapper, which is the whole point of it.
+     */
+    readonly primary: DeviceBackend,
     private readonly vendors: VendorDeviceSource
   ) {}
 

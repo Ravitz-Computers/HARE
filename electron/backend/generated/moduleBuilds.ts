@@ -1,4 +1,4 @@
-// GENERATED FILE — DO NOT EDIT BY HAND.
+// GENERATED FILE -- DO NOT EDIT BY HAND.
 //
 // Produced by scripts/module-manifest.mjs, which computes every digest below
 // from the real published bytes. Modules are native code HARE loads into its

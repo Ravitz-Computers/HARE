@@ -2,7 +2,7 @@
 // Stamps each build with something a log can be traced back to.
 //
 // Every build called itself "HARE 0.1.0", so a diagnostic log couldn't say
-// which one produced it — a real cost: a log arrived showing a bug that had
+// which one produced it -- a real cost: a log arrived showing a bug that had
 // already been fixed, and there was no way to tell from the file whether the
 // fix was even present. The version alone can't do this, because the version
 // only changes on release and builds happen constantly.
@@ -39,7 +39,7 @@ const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
 mkdirSync(path.dirname(OUTPUT), { recursive: true });
 writeFileSync(
   OUTPUT,
-  `// GENERATED FILE — DO NOT EDIT BY HAND.
+  `// GENERATED FILE -- DO NOT EDIT BY HAND.
 //
 // Produced by scripts/build-stamp.mjs from a hash of this build's own source,
 // so a diagnostic log can be traced back to exactly the code that wrote it.

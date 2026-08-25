@@ -1,6 +1,7 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import type { DeviceBackend } from "./deviceBackend.js";
 import type { KLColor, KLDevice, KLDeviceType, KLMode, KLZone, BackendStatus, ModeParamsPatch } from "./types.js";
 
@@ -222,6 +223,37 @@ export class OpenRgbBackend implements DeviceBackend {
    * running OpenRGB themselves — a second copy would fight the first over
    * the same buses.
    */
+  /**
+   * Whether the OpenRGB currently serving is the one HARE started.
+   *
+   * The difference matters for restarting: HARE can stop a server it
+   * launched, and must not stop one it didn't -- somebody running OpenRGB
+   * themselves, with their own window open, would have it vanish under them.
+   */
+  get ownsServer(): boolean {
+    return this.spawnedProcess !== null;
+  }
+
+  /** Stops the server HARE started, and waits for the port to actually free up. */
+  async stopOwnServer(timeoutMs = 5000): Promise<boolean> {
+    this.client?.disconnect();
+    this.client = null;
+    if (this.spawnedProcess) {
+      this.spawnedProcess.kill();
+      this.spawnedProcess = null;
+    }
+    // Killing the process and the socket closing are not the same moment, and
+    // relaunching into a port that is still held produces a second server
+    // that binds nothing and reports no devices -- which looks exactly like
+    // the fault the restart was meant to clear.
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!(await this.isServerAlreadyRunning())) return true;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return false;
+  }
+
   async isServerAlreadyRunning(): Promise<boolean> {
     return new Promise((resolve) => {
       const socket = new net.Socket();
@@ -239,7 +271,50 @@ export class OpenRgbBackend implements DeviceBackend {
     });
   }
 
-  /** Best-effort: launch a bundled OpenRGB binary headlessly so HARE is self-contained. Safe to call even if no binary is present. */
+  /**
+ * Notes, once, whether OpenRGB's settings folder existed before HARE ever
+ * started it.
+ *
+ * OpenRGB writes %APPDATA%\OpenRGB the first time it runs, and HARE runs it
+ * without a config path of its own — deliberately, so that HARE and a
+ * standalone OpenRGB share one set of profiles rather than fighting over the
+ * hardware with two.
+ *
+ * The consequence is that on a PC where the user never had OpenRGB, HARE is
+ * the only reason that folder exists; on a PC where they did, it is theirs.
+ * Uninstalling has to be able to tell those apart, and only the moment before
+ * the first launch can. The answer is written where the uninstaller can read
+ * it — the same shape as the PawnIO marker, for the same reason.
+ */
+private noteOpenRgbConfigOwnership(): void {
+  if (process.platform !== "win32") return;
+  const appData = process.env.APPDATA;
+  if (!appData) return;
+  const configDir = path.join(appData, "OpenRGB");
+  // Only ever asked once. After the first launch the folder always exists,
+  // and asking again would record the wrong answer.
+  const alreadyAnswered = spawnSync("reg.exe", [
+    "query",
+    "HKCU\\Software\\HARE",
+    "/v",
+    "OpenRgbConfigCreatedByHare",
+  ]);
+  if (alreadyAnswered.status === 0) return;
+
+  spawnSync("reg.exe", [
+    "add",
+    "HKCU\\Software\\HARE",
+    "/v",
+    "OpenRgbConfigCreatedByHare",
+    "/t",
+    "REG_DWORD",
+    "/d",
+    existsSync(configDir) ? "0" : "1",
+    "/f",
+  ]);
+}
+
+/** Best-effort: launch a bundled OpenRGB binary headlessly so HARE is self-contained. Safe to call even if no binary is present. */
   private async maybeLaunchOpenRgb(): Promise<void> {
     // Already served — leave it alone. Critically, this also leaves
     // `spawnedProcess` null, so shutdown() won't kill a server HARE didn't
@@ -248,6 +323,7 @@ export class OpenRgbBackend implements DeviceBackend {
 
     const exe = this.opts.openRgbExePath;
     if (!exe || !existsSync(exe)) return;
+    this.noteOpenRgbConfigOwnership();
     try {
       this.spawnedProcess = spawn(exe, ["--server", "--server-port", String(this.port)], {
         detached: false,

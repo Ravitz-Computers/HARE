@@ -3,7 +3,7 @@
 //
 // Same rule as scripts/openrgb-manifest.mjs, and for a stronger reason:
 // modules are native code HARE loads into its own process, so an unverified
-// module download would be worse than an unverified OpenRGB download — at
+// module download would be worse than an unverified OpenRGB download -- at
 // least OpenRGB runs as a separate process.
 //
 // No digest is ever written by a person. Each entry's SHA-256 is computed
@@ -70,12 +70,12 @@ async function main() {
 
   if (config.modules.length === 0) {
     console.log("No downloadable modules are configured.");
-    console.log("  Modules that need no download (SteelSeries, MSI) are unaffected —");
+    console.log("  Modules that need no download (SteelSeries, MSI) are unaffected --");
     console.log("  they rely only on what already ships with HARE.");
   }
 
   for (const mod of config.modules) {
-    process.stdout.write(`  ${mod.id} … `);
+    process.stdout.write(`  ${mod.id} ... `);
     try {
       const { bytes, cached } = await fetchArtifact(mod.url);
       approved.push({
@@ -87,7 +87,7 @@ async function main() {
       });
       console.log(`verified (${bytes.length} bytes)${cached ? " [cached]" : ""}`);
     } catch (err) {
-      console.log(`could not verify (${err.message}) — excluded`);
+      console.log(`could not verify (${err.message}) -- excluded`);
       failures.push({ id: mod.id, reason: err.message });
     }
   }
@@ -106,7 +106,7 @@ async function main() {
 
   mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   writeFileSync(OUTPUT_PATH, generated);
-  console.log(`\nWrote ${path.relative(root, OUTPUT_PATH)} — ${approved.length} downloadable module(s).`);
+  console.log(`\nWrote ${path.relative(root, OUTPUT_PATH)} -- ${approved.length} downloadable module(s).`);
   if (failures.length > 0) {
     console.log(`${failures.length} could not be verified and were excluded. They cannot be installed.`);
   }
@@ -116,7 +116,7 @@ function render(approved, failures) {
   const excluded = failures.length
     ? failures.map((f) => `//   - ${f.id}: ${f.reason}`).join("\n") + "\n//\n"
     : "";
-  return `// GENERATED FILE — DO NOT EDIT BY HAND.
+  return `// GENERATED FILE -- DO NOT EDIT BY HAND.
 //
 // Produced by scripts/module-manifest.mjs, which computes every digest below
 // from the real published bytes. Modules are native code HARE loads into its

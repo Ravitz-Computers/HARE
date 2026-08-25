@@ -1,0 +1,5 @@
+{
+  "_comment": "The Microsoft Visual C++ runtime that OpenRGB is built against. Without it OpenRGB.exe does not start and HARE finds no devices at all. \"track\": \"latest\" fetches Microsoft's permanent redistributable URL at build time and pins its digest — no URL or hash is written here by hand. Microsoft updates the file in place, which is exactly why the digest is regenerated per build rather than frozen.",
+  "track": "latest",
+  "builds": []
+}
