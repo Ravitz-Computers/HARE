@@ -1,7 +1,7 @@
 {
   "name": "hare",
   "productName": "HARE",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "HARE (Hardware Adaptive RGB Engine) \u2014 simple, beautiful universal RGB control for your gaming PC, by Ravitz Computers.",
   "author": {
     "name": "Ravitz Computers",
@@ -45,7 +45,7 @@
     "test:dashboard": "npm run build:electron && node test/verify-dashboard.mjs",
     "test:feedback": "node test/verify-feedback.mjs",
     "test:sensors": "npm run build:electron && node test/verify-sensors.mjs",
-    "test": "npm run test:openrgb && npm run test:manager && npm run test:effects && npm run test:layers && npm run test:screen && npm run test:vendors && npm run test:vendor-devices && npm run test:input-hook && npm run test:logging && npm run test:installer && npm run test:elevation && npm run test:download && npm run test:prefs && npm run test:manifest && npm run test:resources && npm run test:dashboard && npm run test:sensors && npm run test:feedback && npm run test:single-installer && npm run test:release && npm run test:build-scripts && npm run test:signing && npm run test:builder-config",
+    "test": "npm run test:openrgb && npm run test:manager && npm run test:effects && npm run test:layers && npm run test:screen && npm run test:vendors && npm run test:vendor-devices && npm run test:input-hook && npm run test:logging && npm run test:installer && npm run test:elevation && npm run test:download && npm run test:prefs && npm run test:manifest && npm run test:resources && npm run test:dashboard && npm run test:sensors && npm run test:feedback && npm run test:single-installer && npm run test:release && npm run test:build-scripts && npm run test:signing && npm run test:builder-config && npm run test:widget-editing && npm run test:openrgb-restart",
     "package:win": "node scripts/package-win.mjs",
     "preview": "vite preview",
     "redist:manifest": "node scripts/redist-manifest.mjs",
@@ -58,7 +58,9 @@
     "test:build-scripts": "node test/verify-build-scripts.mjs",
     "sign:status": "node -e \"import('./scripts/signing.mjs').then(m=>console.log(m.resolveSigning().summary))\"",
     "test:signing": "node test/verify-signing.mjs",
-    "test:builder-config": "node test/verify-builder-config.mjs"
+    "test:builder-config": "node test/verify-builder-config.mjs",
+    "test:widget-editing": "node test/verify-widget-editing.mjs",
+    "test:openrgb-restart": "node test/verify-openrgb-restart.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",

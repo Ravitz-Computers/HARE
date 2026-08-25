@@ -6,7 +6,7 @@ Keyboard, mouse, motherboard, memory, fans, cooler, strips: one place to control
 four vendor apps that each want to own your machine. Built by
 [Ravitz Computers](https://ravitzcomputers.com).
 
-> **Beta 1.** HARE runs on real hardware and does what this page says it does. It is also new, and
+> **Beta 2.** HARE runs on real hardware and does what this page says it does. It is also new, and
 > [`docs/STATUS.md`](docs/STATUS.md) says plainly which parts have been proven on real hardware, which
 > have not, and what isn't built yet. Read it before deciding what to trust.
 
@@ -14,7 +14,7 @@ four vendor apps that each want to own your machine. Built by
 
 ## Install
 
-Download **`HARE-Setup-1.0.0-beta.1.exe`** from the
+Download **`HARE-Setup-1.0.0-beta.2.exe`** from the
 [latest release](https://github.com/Ravitz-Computers/HARE/releases) and run it.
 
 That's the whole thing. One file. It contains HARE, [OpenRGB](https://openrgb.org/), the Microsoft Visual
@@ -213,7 +213,6 @@ Vinny the Bunny and the Ravitz Computers medallion belong to Ravitz Computers an
 the MIT licence. Someone may take the code under those terms; not the character.
 
 ---
-This project uses the SignPath Foundation for code signing.
 
 <sub>HARE is not affiliated with, endorsed by, or sponsored by Corsair, Razer, ASUS, MSI, NZXT, Logitech,
 SteelSeries, Lian Li, Thermalright, or any other manufacturer. Their names appear only to describe which

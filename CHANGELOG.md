@@ -4,12 +4,86 @@ Notable changes to HARE. Dates are the release date; versions follow
 [semantic versioning](https://semver.org), and pre-releases are named the way
 they're spoken about — `1.0.0-beta.1` is "Beta 1".
 
+## 1.0.0-beta.2 — Beta 2
+
+What changed since the Beta 1 test builds.
+
+### Fixed
+
+- **Resizing a widget did nothing.** The size control was a popover *inside* the layout preview, and
+  that preview clips its contents — on a one-cell widget the panel was about ninety pixels wide with
+  half of it off the edge. The dropdowns inside it may never have opened either: a native `select`
+  inside a draggable element frequently refuses to open in Chromium. Size and colour now live below
+  the preview, where there is room, and size is a −/+ stepper.
+- **"No background" showed a dark rectangle.** Making the window transparent is only half of it; the
+  page still painted. `body` carries an opaque colour and two radial gradients, so the screen looked
+  exactly as before. Every layer between the desktop and the cards is cleared now.
+- **The installer wouldn't build.** `publisherName` was at the root of `electron-builder.yml`, where
+  it isn't an option — and electron-builder validates its config *after* everything is built, so it
+  died ten minutes in. The config is now checked against electron-builder's own schema in about a
+  second, before the slow part.
+- **The build script wouldn't parse on Windows.** One em dash. PowerShell 5.1 reads a `.ps1` as the
+  system code page unless the file has a byte-order mark, so three UTF-8 bytes arrived as mojibake,
+  ended a string early, and took the rest of the file with it. Those files are ASCII-only now, the
+  PowerShell carries a BOM, and the script is actually parsed as part of the test suite.
+- **MSI Mystic Light reported success when every write had failed.** It counted attempts and threw
+  the SDK's return code away.
+- Effects that need something from outside HARE — the keyboard hook, screen capture, system audio —
+  used to fail into silence. The input hook had recorded exactly why since the day it was written;
+  nothing ever read it. All three now say what was refused, on the effect itself.
+- Music Reactive froze when HARE was minimised to the tray, because its capture loop runs on
+  `requestAnimationFrame` and Chromium doesn't fire that for a hidden window.
+
+### The second screen
+
+- **It arranges itself.** Tap Edit on the screen and drag widgets, resize them and recolour them
+  there, without walking back to the PC. **Lockable** from HARE's own window — the switch is never on
+  the screen itself, so a panel anyone can reach can't unlock itself.
+- Its own taskbar button, its own name and its own badge, rather than a second entry under HARE that
+  reads as a dialog somebody left open.
+
+### Getting unstuck
+
+- **Restart OpenRGB**, in Settings → Hardware. OpenRGB can end up connected but no longer responding,
+  and until now the only way out was closing HARE and finding OpenRGB.exe in Task Manager. It handles
+  the three cases separately and says which one it was in: HARE's own server is stopped and started,
+  an elevated one is restarted through its logon task, and an OpenRGB you're running yourself is left
+  strictly alone. Your saved lighting is reapplied either way.
+- **Report a Bug**, in Settings → About. Writes the email for you, offers to include your system
+  details, and tells you how to attach a log.
+
+### Starting up
+
+- HARE starts with Windows by default, and starts **into the tray** when Windows is the one starting
+  it. Opening HARE yourself always shows a window — an app that appears to do nothing when you click
+  it is broken, whatever a setting says.
+
+### Signing
+
+- The build signs the installer when a certificate is configured, and refuses to finish if signing was
+  configured and didn't happen — a build that quietly ships unsigned is the one failure nobody catches
+  until it's published. Azure Artifact Signing, a certificate file, one on a hardware token, and
+  SignPath are all supported; see `SIGNING.md`.
+- This release is **unsigned**. Windows will warn the first people who run it. Every release carries a
+  Sigstore build attestation and a SHA-256 checksum in the meantime.
+
+### Honesty
+
+- Vendor integrations that have never been run against the real software are marked **Untested**
+  rather than showing the same confident green badge as the one that has.
+- Controls that could never succeed are gone rather than greyed out: the Community Widgets panel, and
+  the add-on module Install buttons.
+- [`docs/STATUS.md`](docs/STATUS.md) says what works, what's unproven, what's degraded and what isn't
+  built, and the README links to it.
+
 ## 1.0.0-beta.1 — Beta 1
 
-The first public build. HARE has been running against real hardware
-(an ASUS motherboard with an ARGB header, a bundled OpenRGB, PawnIO) rather
-than only against simulated devices, and everything below is there because
-something on a real PC needed it.
+Never released. Builds carrying this version were test builds, and the list
+below is the baseline Beta 2 builds on.
+
+HARE running against real hardware — an ASUS motherboard with an ARGB header,
+a bundled OpenRGB, PawnIO — rather than only against simulated devices.
+Everything below is there because something on a real PC needed it.
 
 ### One installer
 
@@ -52,15 +126,6 @@ something on a real PC needed it.
 - Temperatures, load and fan speeds from the processor, memory, graphics card
   and AIO cooler, with LibreHardwareMonitor and HWiNFO picked up when present.
 - Settings → Hardware → System Sensors says what each missing source needs.
-
-### Signing
-
-- The build signs the installer when a certificate is configured, and refuses to finish if signing was
-  configured and didn't happen — a build that quietly ships unsigned is the one failure nobody catches
-  until it's published. Azure Artifact Signing, a certificate file, one on a hardware token, and
-  SignPath are all supported; see `SIGNING.md`.
-- This release is **unsigned**. Windows will warn the first people who run it. Every release carries a
-  Sigstore build attestation and a SHA-256 checksum in the meantime.
 
 ### Under it
 

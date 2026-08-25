@@ -48,6 +48,9 @@ files:
   - build/icon.ico
   - build/icon.png
   - build/trayTemplate.png
+  # The second screen's own taskbar badge -- same reasoning as above: this
+  # is loaded from disk at runtime, so it has to actually ship.
+  - build/dashboard-icon.ico
 
 extraResources:
   # Drop a portable OpenRGB build here before packaging (see vendor/openrgb/README.md).
