@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    // "baseUrl" is deprecated as of TypeScript 6.0 (slated for removal in
+    // 7.0) -- dropped rather than silenced via ignoreDeprecations, since
+    // "paths" alone already resolves relative to this tsconfig.json's own
+    // directory under "moduleResolution": "bundler", identical behavior to
+    // the old baseUrl: "." + these same relative path entries.
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["./electron/backend/*"]
+    }
+  },
+  "include": ["src", "electron/backend/types.ts"]
+}

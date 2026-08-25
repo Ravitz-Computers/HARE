@@ -19,3 +19,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+This license covers HARE's own source code only.
+
+HARE is distributed together with third-party software under other licenses,
+including a bundled copy of OpenRGB under the GNU General Public License,
+version 2. Those components keep their own licenses, which are reproduced in
+THIRD-PARTY-NOTICES.md and licenses/. See LICENSE-NOTES.md for what that means
+in practice for anyone distributing HARE.
+
+HARE controls physical hardware. Read the warranty disclaimer above carefully:
+it applies in full to any effect HARE has on your devices.

@@ -1,0 +1,158 @@
+appId: com.ravitzcomputers.hare
+productName: HARE
+copyright: Copyright © Ravitz Computers
+
+# HARE doesn't have auto-update wired up yet (see ROADMAP.md), so there's
+# nowhere for electron-builder to publish update metadata to. Without this,
+# electron-builder still tries to generate auto-update info as part of the
+# nsis target and crashes outright (`Cannot read properties of null (reading
+# 'channel')`) because there's no repository/publish config to infer a
+# target from -- and it does this *after* the installer .exe is already
+# built, so the build looks entirely successful right up until it reports
+# failure. Found by actually running the full packaging step end-to-end.
+publish: null
+
+# HARE's only native runtime dependency is uiohook-napi (for the Reactive
+# effect's global input hook), which ships prebuilt N-API binaries for every
+# target platform (see node_modules/uiohook-napi/prebuilds/) -- N-API is
+# specifically designed to be ABI-stable across Node.js *and* Electron
+# versions, so it never needs rebuilding per target. Left at its default,
+# electron-builder's @electron/rebuild step tries to rebuild it from source
+# anyway and fails outright with "node-gyp does not support cross-compiling
+# native modules from source" when packaging Windows builds from this
+# non-Windows dev sandbox -- and would demand a full Visual Studio Build
+# Tools + Python + node-gyp toolchain even on a real Windows machine, which
+# is exactly the manual-setup burden build.bat/build.ps1 exist to avoid.
+# Skipping the rebuild step is correct and safe here specifically because
+# there are no *other* native runtime dependencies that would actually need
+# one -- found by running the real packaging step end-to-end, not guessed.
+npmRebuild: false
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+  # electron-builder's own `win.icon` below only embeds the icon into the
+  # .exe/shortcuts at build time -- it does NOT make build/ reachable at
+  # runtime. main.ts loads the window and tray icons from disk via
+  # path.join(__dirname, "..", "build", ...), which resolves inside the
+  # packaged asar too -- but only if build/ actually ships. Without this,
+  # that path silently doesn't exist in the installed app, so the running
+  # window gets no icon at all: a blank taskbar icon, even though the .exe
+  # file itself looks fine. Found by tracing where windowIconPath actually
+  # points once packaged, not by guessing.
+  - build/icon.ico
+  - build/icon.png
+  - build/trayTemplate.png
+
+extraResources:
+  # Drop a portable OpenRGB build here before packaging (see vendor/openrgb/README.md).
+  # HARE launches it headlessly at startup so end users never see OpenRGB itself.
+  - from: vendor/openrgb
+    to: openrgb
+    filter:
+      - "**/*"
+
+  # The PawnIO driver installer, fetched and digest-pinned at build time by
+  # scripts/pawnio-manifest.mjs. Shipped inside HARE so that unlocking
+  # motherboard and RAM lighting never means sending someone to a website —
+  # the copy that ships is the copy that was verified.
+  - from: vendor/pawnio
+    to: pawnio
+    filter:
+      - "**/*"
+
+  # The Visual C++ runtime OpenRGB is built against, fetched and digest-pinned
+  # at build time by scripts/redist-manifest.mjs. Without it OpenRGB.exe does
+  # not start on a clean PC and HARE finds no hardware at all — which is
+  # exactly how this was discovered.
+  - from: vendor/redist
+    to: redist
+    filter:
+      - "**/*"
+
+  # License texts, shipped as plain readable files next to the installed app.
+  # Settings -> About already displays these (they're bundled into the
+  # renderer), but the bundled OpenRGB binary is GPL-2.0, and the GPL expects
+  # its terms to travel with the binary in a form the recipient can actually
+  # find and read -- not only inside an app they have to launch first. See
+  # LICENSE-NOTES.md for the full compliance picture.
+  - from: licenses
+    to: licenses
+    filter:
+      - "**/*"
+  - from: LICENSE
+    to: LICENSE.txt
+  - from: THIRD-PARTY-NOTICES.md
+    to: THIRD-PARTY-NOTICES.md
+  - from: LICENSE-NOTES.md
+    to: LICENSE-NOTES.md
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  artifactName: HARE-Setup-${version}.${ext}
+  # HARE itself runs unelevated. Nothing in the app needs administrator
+  # rights: only OpenRGB does, and only for SMBus (motherboard and RAM), and
+  # HARE reaches it over a localhost socket where the client's privilege
+  # level is irrelevant.
+  #
+  # This was `requireAdministrator`, which caused two problems. It prompted
+  # for UAC on every launch, and it silently broke "launch when Windows
+  # starts" outright -- Windows will not auto-elevate an app from the Run
+  # key, so the registered entry never usefully ran. Elevation now lives in
+  # one opt-in scheduled task instead (electron/backend/elevationHelper.ts).
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  # Custom install/uninstall steps: see build/installer.nsh. The uninstaller
+  # is what guarantees HARE leaves nothing behind -- the scheduled task, the
+  # settings/gallery data, and the Run-key entry are all removed there.
+  include: build/installer.nsh
+  # A proper wizard rather than the silent one-click install.
+  #
+  # One-click is faster, but it gives someone installing a program that wants
+  # administrator rights, ships a kernel driver and a system runtime, and
+  # starts with Windows exactly no idea what is about to happen. A wizard is
+  # the honest shape for this: it says what it is, shows the licence, lets
+  # people choose where it goes, and reports what it's doing while it does it.
+  oneClick: false
+  # Installs to Program Files for everyone on the PC, rather than into one
+  # user's AppData. That means the installer asks for administrator rights
+  # once — which is where a permission prompt belongs, and is exactly the
+  # trade HARE makes everywhere else: pay at install time so the app itself
+  # never needs elevation to launch.
+  #
+  # Note this is why logs and settings live under the user's own AppData and
+  # not next to the executable: Program Files is read-only for a standard
+  # user, and writing there would put HARE back to needing admin every run.
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  # The licence page — HARE is MIT, and it bundles GPL components whose terms
+  # ship alongside it (see LICENSE-NOTES.md).
+  license: LICENSE
+  # Generated from the Vinny vectors by scripts/build-art.mjs. NSIS
+  # needs 24-bit BMPs at exact sizes; a PNG or an alpha channel renders as a
+  # black rectangle rather than failing.
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/installerSidebar.bmp
+  installerHeader: build/installerHeader.bmp
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  # The finish page offers to start HARE, which is what someone who just
+  # installed it almost always wants.
+  runAfterFinish: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: HARE
+
+# macOS/Linux targets are left out of this beta (Windows-first, per the
+# initial project scope) but electron-builder supports adding `mac:` / `linux:`
+# blocks here later with no changes needed elsewhere in the app.

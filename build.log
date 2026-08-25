@@ -1,0 +1,352 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260825121017
+Username: TRANSFER2\Admin
+RunAs User: TRANSFER2\Admin
+Configuration Name: 
+Machine: TRANSFER2 (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\Admin\Desktop\hare\scripts\build.ps1
+Process ID: 4500
+PSVersion: 5.1.26100.9168
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.9168
+BuildVersion: 10.0.26100.9168
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+[1/4] Checking for Node.js...
+[!] Node.js isn't installed. Downloading a private copy just for HARE (no admin rights needed).
+      Downloading Node.js v22.22.2...
+      Extracting...
+[OK] Using a private copy of Node.js v22.22.2 (installed only inside this project, not system-wide).
+
+[2/4] Installing HARE's dependencies (first run only, this can take a few minutes)...
+node.exe : npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out 
+lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive 
+and powerful.
+At line:1 char:1
++ & "C:\Users\Admin\Desktop\hare\tools\node-v22.22.2-win-x64/node.exe"  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn deprec...e and powerful.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security 
+vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased 
+(at exorbitant rates) by contacting i@izs.me
+npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for 
+more info.
+npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+added 522 packages in 46s
+[OK] Dependencies installed.
+
+[3/5] Collecting everything the installer has to contain...
+      Looking up the latest OpenRGB release...
+      Downloading OpenRGB...
+      Extracting...
+[OK] OpenRGB is set up.
+      Downloading the PawnIO driver...
+[OK] the PawnIO driver is ready.
+      Downloading the Visual C++ runtime...
+[OK] the Visual C++ runtime is ready.
+
+[4/5] Building HARE (this is the slow part)...
+
+> hare@1.0.0-beta.1 sign:status
+> node -e "import('./scripts/signing.mjs').then(m=>console.log(m.resolveSigning().summary))"
+
+No signing certificate configured, so this installer will be unsigned. Windows will show a SmartScreen warning. See SIGNING.md.
+
+> hare@1.0.0-beta.1 package:win
+> node scripts/package-win.mjs
+
+
+  Signing: No signing certificate configured, so this installer will be unsigned. Windows will show a SmartScreen warning. See SIGNING.md.
+
+
+> hare@1.0.0-beta.1 test:builder-config
+> node test/verify-builder-config.mjs
+
+electron-builder configuration...
+
+  OK: the config exists
+  OK: electron-builder's schema is available to check it against
+  OK: no unknown options
+  OK: publisherName isn't at the root, where it isn't an option
+  OK: ...it's passed with the signing options instead, from package.json
+  OK: it builds an NSIS installer for x64
+  OK: the installer is a wizard, not a silent one-click
+  OK: ...installing for the whole machine, into Program Files
+  OK: ...showing the licence
+  OK: HARE itself runs unelevated
+  OK: auto-update metadata is switched off, since there's nowhere to publish it
+  OK: every payload is packed in
+  OK: the icons ship, or the installed app has no icon at all
+
+ALL_BUILDER_CONFIG_CHECKS_PASSED
+
+> hare@1.0.0-beta.1 build
+> npm run build:renderer && npm run build:electron
+
+
+> hare@1.0.0-beta.1 build:renderer
+> npm run art && vite build
+
+
+> hare@1.0.0-beta.1 art
+> node scripts/build-art.mjs
+
+Wrote build/icon.png (1024), build/icon.ico (256/128/64/48/32/24/16), build/trayTemplate.png (64), build/installerSidebar.bmp (164x314), build/installerHeader.bmp (150x57).
+vite v8.2.2 building client environment for production...
+transforming...
+Γ£ô 2349 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                   1.46 kB Γöé gzip:   0.84 kB
+dist/assets/space-grotesk-vietnamese-700-normal-DMty7AZE.woff2    4.20 kB
+dist/assets/space-grotesk-vietnamese-600-normal-DUi7WF5p.woff2    4.31 kB
+dist/assets/space-grotesk-vietnamese-500-normal-BmEvtly_.woff2    4.32 kB
+dist/assets/inter-vietnamese-400-normal-DMkecbls.woff2            4.97 kB
+dist/assets/inter-vietnamese-600-normal-Cc8MFFhd.woff2            5.10 kB
+dist/assets/inter-vietnamese-700-normal-DlLaEgI2.woff2            5.10 kB
+dist/assets/inter-vietnamese-500-normal-DOriooB6.woff2            5.11 kB
+dist/assets/inter-greek-ext-400-normal-DGGRlc-M.woff2             5.26 kB
+dist/assets/inter-greek-ext-500-normal-C4iEst2y.woff2             5.42 kB
+dist/assets/inter-greek-ext-600-normal-DRtmH8MT.woff2             5.43 kB
+dist/assets/inter-greek-ext-700-normal-qfdV9bQt.woff2             5.44 kB
+dist/assets/space-grotesk-vietnamese-700-normal-Duxec5Rn.woff     5.58 kB
+dist/assets/space-grotesk-vietnamese-600-normal-D6zpsUhD.woff     5.70 kB
+dist/assets/space-grotesk-vietnamese-500-normal-BTqKIpxg.woff     5.71 kB
+dist/assets/inter-vietnamese-400-normal-Bbgyi5SW.woff             6.50 kB
+dist/assets/inter-vietnamese-500-normal-mJboJaSs.woff             6.59 kB
+dist/assets/inter-vietnamese-700-normal-BZaoP0fm.woff             6.63 kB
+dist/assets/inter-vietnamese-600-normal-BuLX-rYi.woff             6.64 kB
+dist/assets/inter-greek-ext-400-normal-KugGGMne.woff              7.06 kB
+dist/assets/inter-greek-ext-500-normal-2j5mBUwD.woff              7.19 kB
+dist/assets/inter-greek-ext-600-normal-B8X0CLgF.woff              7.21 kB
+dist/assets/inter-greek-ext-700-normal-BoQ6DsYi.woff              7.21 kB
+dist/assets/happy-d7nqaRGs.svg                                    7.65 kB Γöé gzip:   2.87 kB
+dist/assets/inter-cyrillic-400-normal-obahsSVq.woff2              7.71 kB
+dist/assets/inter-greek-400-normal-B4URO6DV.woff2                 7.77 kB
+dist/assets/inter-cyrillic-500-normal-BasfLYem.woff2              7.90 kB
+dist/assets/inter-cyrillic-700-normal-CjBOestx.woff2              7.90 kB
+dist/assets/inter-greek-500-normal-BIZE56-Y.woff2                 7.92 kB
+dist/assets/inter-greek-700-normal-C3JjAnD8.woff2                 7.92 kB
+dist/assets/inter-greek-600-normal-plRanbMR.woff2                 7.94 kB
+dist/assets/inter-cyrillic-600-normal-CWCymEST.woff2              7.97 kB
+dist/assets/angry-DC0vPFXO.svg                                    8.59 kB Γöé gzip:   3.47 kB
+dist/assets/hare-taskbar-icon-Brs1s4JF.svg                        8.89 kB Γöé gzip:   3.46 kB
+dist/assets/inter-cyrillic-400-normal-HOLc17fK.woff               9.78 kB
+dist/assets/inter-cyrillic-700-normal-DrXBdSj3.woff               9.91 kB
+dist/assets/inter-greek-400-normal-q2sYcFCs.woff                  9.92 kB
+dist/assets/inter-cyrillic-600-normal-4D_pXhcN.woff               9.93 kB
+dist/assets/inter-cyrillic-500-normal-CxZf_p3X.woff               9.94 kB
+dist/assets/inter-greek-500-normal-Xzm54t5V.woff                  9.98 kB
+dist/assets/inter-greek-700-normal-BUv2fZ6O.woff                  9.98 kB
+dist/assets/inter-greek-600-normal-BZpKdvQh.woff                 10.03 kB
+dist/assets/inter-cyrillic-ext-400-normal-BQZuk6qB.woff2         10.23 kB
+dist/assets/excited-DkeUk74t.svg                                 10.42 kB Γöé gzip:   4.22 kB
+dist/assets/inter-cyrillic-ext-500-normal-B0yAr1jD.woff2         10.43 kB
+dist/assets/inter-cyrillic-ext-600-normal-Dfes3d0z.woff2         10.48 kB
+dist/assets/inter-cyrillic-ext-700-normal-BjwYoWNd.woff2         10.49 kB
+dist/assets/confused-CD5bMI9n.svg                                10.70 kB Γöé gzip:   4.03 kB
+dist/assets/focused-CLjuBysm.svg                                 10.77 kB Γöé gzip:   4.38 kB
+dist/assets/surprised-Cxc7V1W9.svg                               11.44 kB Γöé gzip:   4.21 kB
+dist/assets/welcome-BV44MvRQ.svg                                 11.96 kB Γöé gzip:   4.52 kB
+dist/assets/space-grotesk-latin-ext-700-normal-BQnZhY3m.woff2    11.99 kB
+dist/assets/space-grotesk-latin-ext-500-normal-DUe3BAxM.woff2    12.27 kB
+dist/assets/space-grotesk-latin-ext-600-normal-DxxdqCpr.woff2    12.28 kB
+dist/assets/space-grotesk-latin-700-normal-RjhwGPKo.woff2        12.84 kB
+dist/assets/sleeping-5QhSYyiy.svg                                12.84 kB Γöé gzip:   4.90 kB
+dist/assets/hare-logo-1-DglPqPMy.svg                             13.21 kB Γöé gzip:   4.80 kB
+dist/assets/space-grotesk-latin-600-normal-DjKNqYRj.woff2        13.28 kB
+dist/assets/space-grotesk-latin-500-normal-lFbtlQH6.woff2        13.31 kB
+dist/assets/inter-cyrillic-ext-400-normal-DQukG94-.woff          13.33 kB
+dist/assets/inter-cyrillic-ext-700-normal-LO58E6JB.woff          13.40 kB
+dist/assets/inter-cyrillic-ext-500-normal-BmqWE9Dz.woff          13.45 kB
+dist/assets/inter-cyrillic-ext-600-normal-Bcila6Z-.woff          13.46 kB
+dist/assets/warning-DwnQ0UhG.svg                                 13.87 kB Γöé gzip:   5.40 kB
+dist/assets/peeking-tLHT8rmf.svg                                 14.39 kB Γöé gzip:   5.22 kB
+dist/assets/confident-B3ny3QTW.svg                               14.85 kB Γöé gzip:   5.70 kB
+dist/assets/hello-BeziWhi9.svg                                   14.87 kB Γöé gzip:   5.58 kB
+dist/assets/love-CBzfPpBf.svg                                    15.60 kB Γöé gzip:   5.18 kB
+dist/assets/asset-35-BYkb3P0c.svg                                15.65 kB Γöé gzip:   5.68 kB
+dist/assets/space-grotesk-latin-700-normal-CwsQ-cCU.woff         16.41 kB
+dist/assets/space-grotesk-latin-ext-700-normal-HVCqSBdx.woff     16.46 kB
+dist/assets/space-grotesk-latin-ext-600-normal-VcznFIpX.woff     16.72 kB
+dist/assets/space-grotesk-latin-ext-500-normal-3dgZTiw9.woff     16.78 kB
+dist/assets/space-grotesk-latin-600-normal-BflQw4A9.woff         16.88 kB
+dist/assets/space-grotesk-latin-500-normal-CNSSEhBt.woff         16.98 kB
+dist/assets/thank-you-CCeucR0B.svg                               17.16 kB Γöé gzip:   6.36 kB
+dist/assets/asset-3-DegaOkfJ.svg                                 17.22 kB Γöé gzip:   6.25 kB
+dist/assets/idea-DPVqKoX9.svg                                    17.82 kB Γöé gzip:   6.80 kB
+dist/assets/thinking-DWq0YEpq.svg                                18.56 kB Γöé gzip:   6.81 kB
+dist/assets/sitting-DJoHifVt.svg                                 19.80 kB Γöé gzip:   7.05 kB
+dist/assets/reading-learning-B6m2K8yC.svg                        20.64 kB Γöé gzip:   7.39 kB
+dist/assets/troubleshoot-z33TNVuo.svg                            20.64 kB Γöé gzip:   7.61 kB
+dist/assets/nice-BYcEqUCl.svg                                    20.97 kB Γöé gzip:   7.62 kB
+dist/assets/tip-note-Dr4Or-ID.svg                                21.54 kB Γöé gzip:   7.64 kB
+dist/assets/investigating-op0wkhTg.svg                           22.18 kB Γöé gzip:   8.02 kB
+dist/assets/setup-configuration-D_UNMUxW.svg                     22.77 kB Γöé gzip:   8.10 kB
+dist/assets/running-DnXsEaS4.svg                                 22.79 kB Γöé gzip:   7.97 kB
+dist/assets/inter-latin-400-normal-C38fXH4l.woff2                23.66 kB
+dist/assets/working-BnNSTYnF.svg                                 23.99 kB Γöé gzip:   8.97 kB
+dist/assets/inter-latin-500-normal-Cerq10X2.woff2                24.27 kB
+dist/assets/inter-latin-700-normal-Yt3aPRUw.woff2                24.35 kB
+dist/assets/inter-latin-600-normal-LgqL8muc.woff2                24.45 kB
+dist/assets/teaching-D1UIWu6y.svg                                24.82 kB Γöé gzip:   8.74 kB
+dist/assets/inter-latin-400-normal-CyCys3Eg.woff                 30.69 kB
+dist/assets/music-DHX91ZWM.svg                                   30.74 kB Γöé gzip:  10.73 kB
+dist/assets/inter-latin-600-normal-CiBQ2DWP.woff                 31.26 kB
+dist/assets/inter-latin-500-normal-BL9OpVg8.woff                 31.28 kB
+dist/assets/inter-latin-700-normal-BLAVimhd.woff                 31.32 kB
+dist/assets/all-set-nice-dDC7WvVk.svg                            31.33 kB Γöé gzip:  11.26 kB
+dist/assets/investigating-with-headphones-CtAKFNkh.svg           33.15 kB Γöé gzip:  11.89 kB
+dist/assets/inter-latin-ext-400-normal-C1nco2VV.woff2            35.00 kB
+dist/assets/inter-latin-ext-500-normal-CV4jyFjo.woff2            36.02 kB
+dist/assets/inter-latin-ext-700-normal-Ca8adRJv.woff2            36.24 kB
+dist/assets/inter-latin-ext-600-normal-D2bJ5OIk.woff2            36.26 kB
+dist/assets/inter-latin-ext-400-normal-77YHD8bZ.woff             47.56 kB
+dist/assets/inter-latin-ext-500-normal-BxGbmqWO.woff             48.49 kB
+dist/assets/inter-latin-ext-700-normal-TidjK2hL.woff             48.63 kB
+dist/assets/inter-latin-ext-600-normal-CIVaiw4L.woff             48.66 kB
+dist/assets/logo-no-words-CgBVrOFx.svg                           63.00 kB Γöé gzip:  19.94 kB
+dist/assets/logo-with-words-CE8W2PJC.svg                        425.96 kB Γöé gzip: 134.51 kB
+dist/assets/index-CkEA1N_e.css                                   52.78 kB Γöé gzip:   9.41 kB
+dist/assets/index-Craqvj_z.js                                   612.91 kB Γöé gzip: 172.65 kB
+
+Γ£ô built in 10.52s
+node.exe : [plugin builtin:vite-reporter] 
+At line:1 char:1
++ & "C:\Users\Admin\Desktop\hare\tools\node-v22.22.2-win-x64/node.exe"  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([plugin builtin:vite-reporter] :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[33m[PLUGIN_TIMINGS] [0mYour build spent 40% of 10.5s inside plugin hooks (4.2s).
+[33m[PLUGIN_TIMINGS] [0mYour build spent 40% of 10.5s inside plugin hooks (4.2s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - @tailwindcss/vite:generate:build transform (16%, 1.7s, 1 call)
+  - @tailwindcss/vite:generate:build transform (16%, 1.7s, 1 call)
+  - vite:css transform (16%, 1.7s, 1 call)
+  - vite:css transform (16%, 1.7s, 1 call)
+Those rows are 32% of the build; the rest of the 40% is below.
+Those rows are 32% of the build; the rest of the 40% is below.
+Not measurable ΓÇö 1 hook whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node 
+--cpu-prof`:
+Not measurable ΓÇö 1 hook whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - vite:asset load (78 calls)
+  - vite:asset load (78 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+
+
+> hare@1.0.0-beta.1 build:electron
+> node scripts/build-stamp.mjs && npm run openrgb:manifest && npm run modules:manifest && npm run pawnio:manifest && npm run redist:manifest && tsc -p electron/tsconfig.json && node scripts/build-preload.mjs
+
+Build stamp: 1.0.0-beta.1+88d91214
+
+> hare@1.0.0-beta.1 openrgb:manifest
+> node scripts/openrgb-manifest.mjs
+
+  release_candidate_1.0rc3 ... a6bb0fbcb7b6eb84... (13956442 bytes)
+
+Wrote electron\backend\generated\openrgbBuilds.ts -- 1 approved build(s).
+
+> hare@1.0.0-beta.1 modules:manifest
+> node scripts/module-manifest.mjs
+
+No downloadable modules are configured.
+  Modules that need no download (SteelSeries, MSI) are unaffected --
+  they rely only on what already ships with HARE.
+
+Wrote electron\backend\generated\moduleBuilds.ts -- 0 downloadable module(s).
+
+> hare@1.0.0-beta.1 pawnio:manifest
+> node scripts/pawnio-manifest.mjs
+
+  Using the PawnIO installer already downloaded (3410960 bytes).
+
+Wrote electron\backend\generated\pawnIoBuild.ts -- 1 approved installer(s).
+
+> hare@1.0.0-beta.1 redist:manifest
+> node scripts/redist-manifest.mjs
+
+  Using the Visual C++ runtime already downloaded (25635768 bytes).
+
+Wrote electron\backend\generated\redistBuild.ts -- 1 approved runtime(s).
+
+
+  dist-electron\preload.cjs  15.3kb
+  dist-electron\preload.cjs  15.3kb
+
+
+Done in 10ms
+Done in 10ms
+
+> hare@1.0.0-beta.1 verify:bundle
+> node scripts/verify-bundle.mjs
+
+Everything the installer needs is present:
+  OK  OpenRGB -- vendor/openrgb/OpenRGB.exe (8.1 MB)
+  OK  The Visual C++ runtime -- vendor/redist/vc_redist.x64.exe (24.4 MB)
+  OK  The PawnIO driver -- vendor/pawnio/PawnIO-Setup.exe (3.3 MB)
+  OK  The licence texts -- LICENSE (0.0 MB)
+  ΓÇó electron-builder  version=26.15.3 os=10.0.26200
+  ΓÇó loaded configuration  file=C:\Users\Admin\Desktop\hare\electron-builder.yml
+  ΓÇó skipped dependencies rebuild  reason=npmRebuild is set to false
+  ΓÇó packaging       platform=win32 arch=x64 electron=43.4.1 appOutDir=release\win-unpacked
+  ΓÇó downloaded      label=electron progress=100%
+  ΓÇó downloaded electron zip extracted successfully  output=C:\Users\Admin\Desktop\hare\release\win-unpacked
+  ΓÇó searching for node modules  pm=npm searchDir=C:\Users\Admin\Desktop\hare
+  ΓÇó duplicate dependency references  dependencies=["@emnapi/runtime@1.11.3","once@1.4.0","react-dom@19.2.8"]
+  ΓÇó updating asar integrity executable resource  executablePath=release\win-unpacked\HARE.exe
+  ΓÇó signing with signtool.exe  path=release\win-unpacked\resources\pawnio\PawnIO-Setup.exe
+  ΓÇó signing with signtool.exe  path=release\win-unpacked\resources\openrgb\OpenRGB.exe
+  ΓÇó signing with signtool.exe  path=release\win-unpacked\resources\redist\vc_redist.x64.exe
+  ΓÇó signing with signtool.exe  path=release\win-unpacked\HARE.exe
+  ΓÇó building        target=nsis file=release\HARE-Setup-1.0.0-beta.1.exe archs=x64 oneClick=false perMachine=true
+  ΓÇó signing with signtool.exe  path=release\win-unpacked\resources\elevate.exe
+  ΓÇó signing with signtool.exe  path=release\HARE-Setup-1.0.0-beta.1.__uninstaller.exe
+  ΓÇó signing with signtool.exe  path=release\HARE-Setup-1.0.0-beta.1.exe
+  ΓÇó building block map  blockMapFile=release\HARE-Setup-1.0.0-beta.1.exe.blockmap
+  Built HARE-Setup-1.0.0-beta.1.exe (unsigned).
+  Windows will warn the first people who run it. SIGNING.md explains the options.
+
+
+[5/5] Checking the finished installer...
+[OK] HARE-Setup-1.0.0-beta.1.exe -- 147.7 MB, everything inside.
+[!] This installer is NOT signed. Windows will show a SmartScreen warning to whoever runs it.
+      SIGNING.md explains the options -- Azure Artifact Signing is about $10 a month, SignPath is free for open source.
+
+================================================================
+  Your installer is ready:
+
+    C:\Users\Admin\Desktop\hare\release\HARE-Setup-1.0.0-beta.1.exe
+
+  That one file is all anyone needs. Copy it to any Windows PC,
+  double-click it, and HARE installs -- nothing else to download.
+================================================================
+
+      Skipped. The installer is still waiting in the release folder.
+**********************
+Windows PowerShell transcript end
+End time: 20260825122804
+**********************

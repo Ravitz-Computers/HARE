@@ -1,0 +1,29 @@
+<!doctype html>
+<!--
+  Defaults to the dark theme for the very first (pre-JS) paint, matching
+  EMPTY_THEME in src/state/store.ts. The real preference/effective theme
+  (from AppSettings.themePreference + Electron's nativeTheme, or
+  prefers-color-scheme outside Electron) is resolved and applied within
+  milliseconds of the store's init() running — see applyThemeClass there —
+  so this is just about avoiding a flash of the wrong theme on that very
+  first frame, not the actual source of truth.
+-->
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HARE</title>
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <!-- Fonts are bundled with the app (see src/index.css), not fetched from
+         Google Fonts at runtime as they were originally. A packaged desktop
+         app hotlinking a CDN meant HARE phoned out to Google on every launch,
+         silently fell back to system fonts with no internet, and shipped a
+         third-party request the user never agreed to. The families are the
+         same; they're just installed from npm (@fontsource/*, SIL OFL 1.1)
+         and shipped inside the app. -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

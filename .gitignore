@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-electron
+release
+tools/
+.DS_Store
+*.log
+
+# Everything under vendor/ is fetched at build time and digest-pinned — see
+# scripts/*-manifest.mjs. None of it is source, and two of the three are
+# other people's redistributables (GPL and Microsoft), which have no business
+# being committed to this repository. The READMEs that explain each folder
+# are the exception.
+vendor/*
+!vendor/openrgb/
+vendor/openrgb/*
+!vendor/openrgb/README.md
