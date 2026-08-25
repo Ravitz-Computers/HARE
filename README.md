@@ -213,6 +213,7 @@ Vinny the Bunny and the Ravitz Computers medallion belong to Ravitz Computers an
 the MIT licence. Someone may take the code under those terms; not the character.
 
 ---
+This project uses the SignPath Foundation for code signing.
 
 <sub>HARE is not affiliated with, endorsed by, or sponsored by Corsair, Razer, ASUS, MSI, NZXT, Logitech,
 SteelSeries, Lian Li, Thermalright, or any other manufacturer. Their names appear only to describe which
