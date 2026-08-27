@@ -18,7 +18,7 @@ const COLOR_MODE_FLAGS: { flag: string; value: number }[] = [
 
 /** Full per-mode parameter editing — direction, color mode, brightness, and a mode's own color slots — gated entirely by that mode's own reported flagList, so nothing here ever offers a control the device didn't say it supports. */
 export function ModeParamsEditor({ device }: { device: KLDevice }) {
-  const { updateModeParams } = useHareStore();
+  const { updateModeParams, run } = useHareStore();
   const [modeId, setModeId] = useState(device.activeModeId);
   const mode = device.modes.find((m) => m.id === modeId) ?? device.modes[0];
 
@@ -66,7 +66,11 @@ export function ModeParamsEditor({ device }: { device: KLDevice }) {
       if (directionOptions.length > 0) patch.direction = direction;
       if (colorModeOptions.length > 0) patch.colorMode = colorMode;
       if (showColorSlots) patch.colors = colors.slice(0, mode.colorMax);
-      await updateModeParams(device.id, mode.id, patch, persist);
+      await run(
+        `Applying ${mode.name}`,
+        () => updateModeParams(device.id, mode.id, patch, persist),
+        persist ? `${mode.name} applied and saved to the device.` : `${mode.name} applied.`
+      );
     } finally {
       setBusy(false);
     }

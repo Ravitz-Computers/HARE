@@ -1,0 +1,222 @@
+/* Self-hosted fonts (SIL OFL 1.1) — bundled into the app rather than pulled
+   from Google Fonts at runtime, so HARE works identically offline and makes
+   no third-party network request on launch. Only the weights actually used
+   by tailwind.config.js's `display`/`sans` families are imported, to keep
+   the packaged size down. */
+@import "@fontsource/space-grotesk/500.css";
+@import "@fontsource/space-grotesk/600.css";
+@import "@fontsource/space-grotesk/700.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+@import "tailwindcss";
+
+/* Tailwind v4 defaults to CSS-native @theme config, but HARE's brand palette
+   (exact hand-tuned colors/gradients/shadows/keyframes) stays in
+   tailwind.config.js on purpose: @config is an officially supported v4
+   compatibility path for exactly this, and hand-transcribing a dozen
+   gradient/shadow/keyframe values into @theme's CSS-custom-property syntax
+   is real risk of a subtle brand-color slip for zero functional benefit.
+   (corePlugins/safelist/separator options are dropped under @config, but
+   this config doesn't use any of those.) */
+@config "../tailwind.config.js";
+
+/* Switches `dark:` utilities from the default prefers-color-scheme media
+   query to a class on <html> (set by src/lib/theme.ts, driven by
+   AppSettings.themePreference + Electron's nativeTheme). A pure media-query
+   strategy can't be manually overridden to "always light"/"always dark" —
+   HARE needs that for its in-app theme toggle, on top of the "match
+   Windows" default. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Every "hare-*" Tailwind color (see tailwind.config.js) resolves to one of
+   these CSS variables instead of a fixed hex — that's what makes the whole
+   app re-theme by just toggling the .dark class on <html>, with zero
+   changes needed to any component's className strings (they already only
+   ever use these semantic tokens, never raw hex or raw Tailwind palette
+   colors). Light values live in :root (the default); dark values override
+   them under .dark. Brand/accent colors (glow-pink, glow-violet, etc. plus
+   the gradients built from them) deliberately stay constant across both
+   themes — see tailwind.config.js — same as most brand-driven apps.
+*/
+:root {
+  --hare-bg: #f6f4f9;
+  --hare-panel: #ffffff;
+  --hare-panel2: #f1eef6;
+  --hare-border: #e2dce9;
+  --hare-text: #1c1620;
+  --hare-muted: #6f6479;
+  --hare-scrollbar: #d9d2e2;
+  --hare-scrollbar-hover: #c6bcd4;
+  --hare-range-track: #e6e1ee;
+  --hare-glass-bg: rgba(255, 255, 255, 0.72);
+  --hare-body-glow-1: rgba(139, 63, 251, 0.1);
+  --hare-body-glow-2: rgba(255, 46, 122, 0.07);
+}
+
+.dark {
+  --hare-bg: #0b0810;
+  --hare-panel: #150f1a;
+  --hare-panel2: #1c1521;
+  --hare-border: #2c2233;
+  --hare-text: #f3eef8;
+  --hare-muted: #9c8fae;
+  --hare-scrollbar: #2c2233;
+  --hare-scrollbar-hover: #3d2e47;
+  --hare-range-track: #242a3d;
+  --hare-glass-bg: rgba(21, 15, 26, 0.72);
+  --hare-body-glow-1: rgba(139, 63, 251, 0.14);
+  --hare-body-glow-2: rgba(255, 46, 122, 0.1);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-hare-bg text-hare-text font-sans antialiased;
+  background-image: radial-gradient(circle at 15% -10%, var(--hare-body-glow-1), transparent 42%),
+    radial-gradient(circle at 100% 0%, var(--hare-body-glow-2), transparent 45%);
+  background-attachment: fixed;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--hare-scrollbar);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--hare-scrollbar-hover);
+}
+
+/* Native color input, restyled to sit flush inside our swatch buttons */
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+}
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 999px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--hare-range-track);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff2e7a, #8b3ffb);
+  box-shadow: 0 0 0 3px rgba(255, 46, 122, 0.18);
+  cursor: pointer;
+  margin-top: -5px;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff2e7a, #8b3ffb);
+  cursor: pointer;
+}
+
+.hr-card {
+  @apply bg-hare-panel border border-hare-border rounded-2xl shadow-card;
+}
+
+.hr-btn {
+  @apply flex items-center gap-2 rounded-xl border border-hare-border px-3.5 py-2 text-sm font-medium text-hare-muted transition-colors;
+  @apply hover:text-hare-text hover:border-glow-violet/40;
+  @apply disabled:opacity-50 disabled:pointer-events-none;
+}
+
+/* The small variant, for buttons that sit inside a card header or a row. */
+.hr-btn-sm {
+  @apply flex items-center gap-1.5 rounded-lg border border-hare-border px-2.5 py-1.5 text-xs font-medium text-hare-muted transition-colors;
+  @apply hover:text-hare-text hover:border-glow-violet/40;
+  @apply disabled:opacity-50 disabled:pointer-events-none;
+}
+
+/* Delete and remove. One accent for destructive, everywhere. */
+.hr-btn-danger {
+  @apply hover:text-glow-rose hover:border-glow-rose/40;
+}
+
+.hr-glass {
+  background: var(--hare-glass-bg);
+  backdrop-filter: blur(14px);
+}
+
+/* The second-screen dashboard owns a whole monitor and is touched rather
+   than clicked: nothing scrolls by rubber-banding, nothing is selectable by
+   accident, and no tap flashes a highlight rectangle. */
+/*
+   A widget that's been given its own colour.
+   The tint is on the edge and the heading, never the whole card: six cards
+   each flooded with a different colour is unreadable from across a room,
+   while six cards each edged in one can be told apart at a glance.
+   Every rule falls back to HARE's own look when no colour is set, so one
+   pair of rules covers both cases. */
+.hr-widget > .hr-card {
+  border-color: var(--widget-accent-border, var(--hare-border));
+  box-shadow: var(--widget-accent-glow, var(--hare-card-shadow, 0 18px 40px -32px rgba(0, 0, 0, 0.85)));
+}
+
+.hr-widget > .hr-card h2 {
+  color: var(--widget-accent, inherit);
+}
+
+/* Cards over a photo, or over the desktop itself, need to hold their own
+   ground — otherwise the text sits on whatever happens to be behind it. */
+.hr-dashboard-glass .hr-card {
+  background: color-mix(in srgb, var(--hare-panel) 72%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+/*
+   "No background" on the second screen.
+
+   Making the window transparent is only half of it, and it was the half that
+   made this look broken: the page itself still paints. `body` carries an
+   opaque colour and two radial gradients, so a transparent window showed a
+   dark rectangle exactly as before. Every layer between the desktop and the
+   cards has to be cleared, including the ones nothing else ever sets.
+*/
+html.hr-transparent,
+html.hr-transparent body,
+html.hr-transparent #root {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+body.hr-dashboard-body {
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: default;
+}

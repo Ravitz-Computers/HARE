@@ -1,5 +1,4 @@
-import ravitzLogo from "../assets/ravitz-logo.png";
-import vinnyBadge from "../assets/vinny/badge-rgb.png";
+import { Vinny } from "./Vinny";
 
 interface LogoProps {
   size?: number;
@@ -15,24 +14,18 @@ interface LogoProps {
 }
 
 /**
- * HARE's mark: Vinny the hare inside the RGB strip badge, from the character
- * sheet supplied by Ravitz Computers.
- *
- * Every asset is cut from that sheet by scripts/extract_vinny.py rather than
- * by hand, so a revised sheet regenerates them all identically — see that
- * script for how the sprites are separated from the backdrop.
+ * HARE's mark: Vinny in his badge, drawn from the vector supplied by Ravitz
+ * Computers, so it is as sharp at 16 pixels as at 400.
  */
 export function Logo({ size = 36, withWordmark = false, className = "", variant = "hare" }: LogoProps) {
   const isRavitz = variant === "ravitz";
   return (
     <div className={`flex items-center gap-3 ${className}`}>
-      <img
-        src={isRavitz ? ravitzLogo : vinnyBadge}
+      <Vinny
+        pose={isRavitz ? "logo-with-words" : "hare-logo-1"}
+        size={size}
         alt={isRavitz ? "Ravitz Computers" : "HARE"}
-        width={size}
-        height={size}
-        style={{ width: size, height: size }}
-        className="shrink-0 object-contain drop-shadow-[0_0_10px_rgba(255,46,122,0.35)]"
+        className="shrink-0 drop-shadow-[0_0_10px_rgba(255,46,122,0.35)]"
       />
       {withWordmark && (
         <span className="font-display font-bold text-xl tracking-tight text-hare-text">HARE</span>

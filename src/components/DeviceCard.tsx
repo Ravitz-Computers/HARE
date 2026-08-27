@@ -36,7 +36,7 @@ export function DeviceCard({ device, onOpen }: { device: KLDevice; onOpen: () =>
       {device.unresponsive && (
         <p className="flex items-start gap-1.5 rounded-lg border border-glow-amber/30 bg-glow-amber/10 p-2 text-[11px] text-hare-muted">
           <AlertTriangle size={12} className="mt-0.5 shrink-0 text-glow-amber" />
-          Took the colour but didn't change. See <b>Settings → Hardware → Lighting Not Changing?</b>
+          Took the color but didn't change. See <b>Settings → Hardware → Lighting Not Changing?</b>
         </p>
       )}
 

@@ -8,13 +8,19 @@ import { GalleryPage } from "./pages/Gallery";
 import { WidgetEngine } from "./pages/WidgetEngine";
 import { SettingsPage } from "./pages/Settings";
 import { VinnyFlourish } from "./components/VinnyFlourish";
+import { Toasts } from "./components/Toasts";
 import { useHareStore } from "@/state/store";
+import { useScreenGauges } from "@/lib/useScreenGauges";
 
 export default function App() {
   const { ready, hasSeenOnboarding, state, appSettings, effectFlourish, init, completeOnboarding } =
     useHareStore();
   const [page, setPage] = useState<Page>("dashboard");
   const [openDeviceId, setOpenDeviceId] = useState<number | null>(null);
+
+  // Keeps any cooler screen showing a temperature up to date for as long as
+  // HARE is open, whichever page is in front.
+  useScreenGauges();
 
   useEffect(() => {
     void init();
@@ -60,6 +66,7 @@ export default function App() {
         {page === "settings" && <SettingsPage />}
       </main>
       <VinnyFlourish trigger={effectFlourish} />
+      <Toasts />
     </div>
   );
 }

@@ -116,21 +116,18 @@ export function HardwareAccessStep({ onDone }: { onDone: () => void }) {
 
       {message && <p className="mt-3 text-xs text-glow-amber">{message}</p>}
 
-      <div className="mt-6 flex gap-2">
+      {/*
+        One button, not two. "Not now" and "Done" sat side by side doing
+        exactly the same thing, which made this look like a choice that
+        mattered. Whatever was turned on above is already saved; this closes
+        the step.
+      */}
+      <div className="mt-6">
         <button
           onClick={() => void skip()}
-          className="flex-1 rounded-xl border border-hare-border py-3 text-sm font-medium text-hare-muted hover:text-hare-text transition-colors"
+          className="w-full rounded-xl bg-brand-gradient py-3 text-sm font-medium text-white shadow-glow"
         >
-          Not now
-        </button>
-        <button
-          onClick={() => void (async () => {
-            await remember();
-            onDone();
-          })()}
-          className="flex-1 rounded-xl bg-brand-gradient py-3 text-sm font-medium text-white shadow-glow"
-        >
-          Done
+          Continue
         </button>
       </div>
 

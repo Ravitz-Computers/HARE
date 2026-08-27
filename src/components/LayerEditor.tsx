@@ -37,7 +37,7 @@ function makeLayer(over: Partial<EffectLayer> = {}): EffectLayer {
  * stays bottom-first for the compositor (see LayeredLook).
  */
 export function LayerEditor({ device }: { device: KLDevice }) {
-  const { effects, applyEffect, clearEffect, saveLook } = useHareStore();
+  const { effects, applyEffect, clearEffect, saveLook, run } = useHareStore();
   const [layers, setLayers] = useState<EffectLayer[]>(() => [
     makeLayer({ effectId: "rainbow-wave" }),
     makeLayer({ effectId: "twinkle", blendMode: "add", opacity: 55, color: { r: 255, g: 255, b: 255 } }),
@@ -94,7 +94,11 @@ export function LayerEditor({ device }: { device: KLDevice }) {
   const handleApply = async () => {
     setBusy(true);
     try {
-      await applyEffect(assignment);
+      await run(
+        "Applying the layers",
+        () => applyEffect(assignment),
+        `${layers.length} layer${layers.length === 1 ? "" : "s"} on ${device.name}.`
+      );
     } finally {
       setBusy(false);
     }
@@ -105,17 +109,20 @@ export function LayerEditor({ device }: { device: KLDevice }) {
     if (!name) return;
     setBusy(true);
     try {
-      await saveLook({
-        name,
-        sourceDeviceName: device.name,
-        sourceDeviceType: device.type,
-        effectId: assignment.effectId,
-        color: assignment.color,
-        speed: 45,
-        brightness: 100,
-        layers,
-        loopSeconds: sequencing ? loopSeconds : undefined,
-      });
+      const saved = await run("Saving the look", () =>
+        saveLook({
+          name,
+          sourceDeviceName: device.name,
+          sourceDeviceType: device.type,
+          effectId: assignment.effectId,
+          color: assignment.color,
+          speed: 45,
+          brightness: 100,
+          layers,
+          loopSeconds: sequencing ? loopSeconds : undefined,
+        })
+      );
+      if (!saved) return;
       setLookName("");
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 2000);
