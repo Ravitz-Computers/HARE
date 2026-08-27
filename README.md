@@ -200,6 +200,22 @@ Security problems go to avrumi@ravitzcomputers.com — see [SECURITY.md](SECURIT
 
 ---
 
+## Code signing
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/).
+
+Private keys are held in SignPath's hardware security module and never leave it — nobody on this
+project has a copy. Every signing request is approved by hand, and SignPath verifies that what it
+signs was built by this repository's own release workflow. See
+[`docs/CODE-SIGNING-POLICY.md`](docs/CODE-SIGNING-POLICY.md) for who can approve a release and how
+one is made.
+
+HARE collects nothing and sends nothing anywhere. There is no telemetry, no account, and the
+diagnostic log is off unless you turn it on and never leaves your PC.
+
+---
+
 ## Licence
 
 HARE's own source is **MIT** — see [LICENSE](LICENSE).
@@ -212,7 +228,6 @@ installer is attached to that release, and a written offer of source stands for 
 Vinny the Bunny and the Ravitz Computers medallion belong to Ravitz Computers and are **not** covered by
 the MIT licence. Someone may take the code under those terms; not the character.
 
-This project uses the SignPath Foundation for code signing.
 ---
 
 <sub>HARE is not affiliated with, endorsed by, or sponsored by Corsair, Razer, ASUS, MSI, NZXT, Logitech,

@@ -15,6 +15,12 @@ What changed since the Beta 1 test builds.
   half of it off the edge. The dropdowns inside it may never have opened either: a native `select`
   inside a draggable element frequently refuses to open in Chromium. Size and colour now live below
   the preview, where there is room, and size is a −/+ stepper.
+- **HARE's effects painted on top of the board's own.** On ASRock Polychrome boards, firmware modes
+  worked and HARE's effects came out wrong — both were running at once, drawing to the same LEDs.
+  HARE asked to be given the LEDs using the OpenRGB request that asks the *controller* which of its
+  modes is the direct one; a controller that doesn't answer accepts that request and changes nothing.
+  HARE now picks the direct mode itself and switches into it. (Setting the board to Off isn't the
+  answer — that stops the output too, so HARE's colours go nowhere either.)
 - **"No background" showed a dark rectangle.** Making the window transparent is only half of it; the
   page still painted. `body` carries an opaque colour and two radial gradients, so the screen looked
   exactly as before. Every layer between the desktop and the cards is cleared now.

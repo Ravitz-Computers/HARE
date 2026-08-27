@@ -466,6 +466,35 @@ private noteOpenRgbConfigOwnership(): void {
   }
 
   /**
+   * Picks the mode on a device that lets software drive the LEDs.
+   *
+   * A firmware mode keeps animating while HARE writes to the same LEDs, so
+   * the two composite and the result looks like interference — reported on
+   * ASRock Polychrome boards, where every HARE effect came out "funky" on top
+   * of whatever the board was already doing. "Off" is not the answer: it
+   * stops the firmware *and* the output, so HARE's colours go nowhere either.
+   *
+   * The mode wanted is the one OpenRGB flags `perLedColor`, usually called
+   * Direct or Custom. Off and any other mode that doesn't take per-LED colour
+   * are excluded by name as well as by flag, because a device that mislabels
+   * its flags would otherwise be driven into darkness.
+   */
+  private directColorMode(device: KLDevice): KLMode | undefined {
+    const usable = device.modes.filter(
+      (mode) => mode.supportsDirectColor && !/^\s*off\s*$/i.test(mode.name)
+    );
+    // "Direct" drives the LEDs live and holds nothing; "Custom" is a stored
+    // static pattern on some controllers and is the second choice for that
+    // reason. Anything else that takes per-LED colour is better than a
+    // running firmware effect.
+    return (
+      usable.find((mode) => /^\s*direct\s*$/i.test(mode.name)) ??
+      usable.find((mode) => /^\s*custom\s*$/i.test(mode.name)) ??
+      usable[0]
+    );
+  }
+
+  /**
    * Puts a device into the mode that accepts colours from software.
    *
    * Most controllers ignore per-LED writes unless they've been switched into
@@ -474,23 +503,50 @@ private noteOpenRgbConfigOwnership(): void {
    * it was doing. Done once per device per session, and re-armed whenever a
    * write is found not to have taken (see confirmWrite) or the device leaves
    * that mode.
+   *
+   * The mode is set by its own index rather than through the protocol's
+   * SetCustomMode request. SetCustomMode asks the *controller* which of its
+   * modes is the custom one, and a controller that doesn't answer — ASRock
+   * Polychrome among them — accepts the request and changes nothing. The
+   * request appears to succeed, the firmware effect keeps running, and every
+   * colour HARE writes lands on top of it.
    */
-  private ensureCustomMode(deviceId: number) {
+  private async ensureCustomMode(deviceId: number): Promise<void> {
     if (!this.client || this.customModeSet.has(deviceId)) return;
-    this.client.setCustomMode(deviceId);
     this.customModeSet.add(deviceId);
 
     const device = this.devices.find((d) => d.id === deviceId);
-    if (device) {
-      const direct = device.modes.find((mode) => mode.supportsDirectColor);
+    const direct = device ? this.directColorMode(device) : undefined;
+
+    if (device && direct) {
+      if (device.activeModeId === direct.id) return;
       // Written to the log rather than shown: it only matters when someone is
       // working out why a device won't change, and then it matters a lot.
       console.log(
-        `[HARE] ${device.name}: switching to a direct-colour mode. ` +
-          (direct
-            ? `Its modes include "${direct.name}".`
-            : `WARNING — none of its modes (${device.modes.map((m) => m.name).join(", ") || "none reported"}) ` +
-              "claim to accept per-LED colour, so it may ignore everything HARE sends.")
+        `[HARE] ${device.name}: switching from ` +
+          `"${device.modes.find((m) => m.id === device.activeModeId)?.name ?? "unknown"}" ` +
+          `to "${direct.name}" so HARE's colours aren't drawn on top of a firmware effect.`
+      );
+      try {
+        await this.client.updateMode(deviceId, direct.id);
+        device.activeModeId = direct.id;
+        device.activeEffectId = null;
+        this.emitDevices();
+      } catch (err) {
+        console.warn(`[HARE] ${device.name}: couldn't switch to "${direct.name}".`, err);
+        this.client.setCustomMode(deviceId);
+      }
+      return;
+    }
+
+    // No mode claims to take per-LED colour. Ask the controller for its own
+    // custom mode and hope, which is all that can be done here.
+    this.client.setCustomMode(deviceId);
+    if (device) {
+      console.log(
+        `[HARE] ${device.name}: WARNING — none of its modes ` +
+          `(${device.modes.map((m) => m.name).join(", ") || "none reported"}) claim to accept ` +
+          "per-LED colour, so it may ignore everything HARE sends or paint over it."
       );
     }
   }
@@ -514,7 +570,7 @@ private noteOpenRgbConfigOwnership(): void {
       console.warn(`[HARE] Asked to colour device ${deviceId}, which isn't in the list.`);
       return;
     }
-    this.ensureCustomMode(deviceId);
+    await this.ensureCustomMode(deviceId);
     const full = new Array(device.colors.length).fill(toOrgbColor(color));
     // Deliberate colour changes are logged; effect frames are not, or a log
     // would be thirty lines a second of nothing anyone can read.
@@ -638,7 +694,7 @@ private noteOpenRgbConfigOwnership(): void {
     // A zone that just gained LEDs needs the device put back into a
     // direct-colour mode before anything will show on it.
     this.customModeSet.delete(deviceId);
-    this.ensureCustomMode(deviceId);
+    await this.ensureCustomMode(deviceId);
   }
 
   async setZoneColor(deviceId: number, zoneId: number, color: KLColor): Promise<void> {
@@ -650,7 +706,7 @@ private noteOpenRgbConfigOwnership(): void {
       `[HARE] Writing rgb(${color.r}, ${color.g}, ${color.b}) to zone "${zone.name}" ` +
         `(${zone.ledCount} LEDs from ${zone.ledStart}) of ${device.name}.`
     );
-    this.ensureCustomMode(deviceId);
+    await this.ensureCustomMode(deviceId);
     const zoneColors = new Array(zone.ledCount).fill(toOrgbColor(color));
     this.client.updateZoneLeds(deviceId, zoneId, zoneColors);
     for (let i = zone.ledStart; i < zone.ledStart + zone.ledCount; i++) device.colors[i] = color;
@@ -661,7 +717,7 @@ private noteOpenRgbConfigOwnership(): void {
     if (!this.client) return;
     const device = this.devices.find((d) => d.id === deviceId);
     if (!device) return;
-    this.ensureCustomMode(deviceId);
+    await this.ensureCustomMode(deviceId);
 
     if (zoneId === null) {
       this.client.updateLeds(deviceId, colors.map(toOrgbColor));

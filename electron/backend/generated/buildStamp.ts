@@ -5,5 +5,5 @@
 // "HARE 0.1.0" was the same string for every build ever made; this isn't.
 //
 // Regenerate with:  npm run build:electron
-export const BUILD_STAMP = "f14c49b9";
+export const BUILD_STAMP = "f7283400";
 export const APP_VERSION = "1.0.0-beta.2";

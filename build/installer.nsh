@@ -141,9 +141,26 @@ FunctionEnd
       DetailPrint "Installing the Microsoft Visual C++ runtime (OpenRGB needs it)..."
       ; Waited on, unlike the driver: OpenRGB cannot start until this
       ; finishes, and the finish page offers to launch HARE straight after.
-      ; `/norestart` is Microsoft's own documented switch, not a guess -- and
-      ; the window is left visible so nothing installs unseen.
-      ExecWait '"$2" /norestart' $0
+      ;
+      ; Two behaviours, because there are two genuinely different situations.
+      ; A person running the installer sees the runtime install, which is
+      ; honest about what is being put on their PC. An unattended install --
+      ; `/S`, which is what `winget install` uses -- must not put a window on
+      ; screen at all, so it gets Microsoft's own documented silent switches.
+      ; Guessing a switch is what hung setup once before; `/install /quiet
+      ; /norestart` is documented, not guessed.
+      ; `IfSilent` is a core NSIS instruction rather than LogicLib's
+      ; `${If} ${Silent}`: LogicLib only reaches this file because another
+      ; include happens to pull it in, and a macro that silently stops
+      ; compiling because an unrelated file changed is not a dependency worth
+      ; having.
+      IfSilent redist_quiet redist_visible
+      redist_quiet:
+        ExecWait '"$2" /install /quiet /norestart' $0
+        Goto redist_ran
+      redist_visible:
+        ExecWait '"$2" /norestart' $0
+      redist_ran:
       DetailPrint "Visual C++ runtime installer finished (code $0)."
       ; Recorded so the uninstaller knows this one arrived with HARE. A
       ; runtime that was already on the PC belongs to whatever put it there.
@@ -177,6 +194,19 @@ FunctionEnd
   ; returns immediately. HARE's install finishes regardless, and PawnIO's
   ; installer is just another window on screen -- which is honest about what
   ; is being installed, and cannot hang anything.
+  ; An unattended install gets no driver.
+  ;
+  ; PawnIO's installer is packed, so which framework built it cannot be read
+  ; from the file, and no silent switch is documented. Guessing produced an
+  ; error dialog and hung setup for real -- doing that inside a `winget
+  ; install` nobody is watching would be worse. So a silent install skips it,
+  ; and HARE's own Settings page installs it later with one click, which is a
+  ; path that already exists and is already tested.
+  IfSilent 0 pawnio_visible
+    DetailPrint "Silent install: skipping the PawnIO driver. Install it from Settings > Hardware."
+    Goto pawnio_done
+  pawnio_visible:
+
   DetailPrint "Starting the PawnIO driver installer (motherboard and RAM lighting)..."
   Exec '"$1"'
   ; Recorded so the uninstaller knows this one is ours to remove. Without the

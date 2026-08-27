@@ -75,6 +75,17 @@ Order of operations:
    on.
 3. Apply at <https://signpath.org/apply>.
 
+**The attribution is not optional, and the wording is theirs.** Approved
+projects have to carry this line, exactly:
+
+> Free code signing provided by [SignPath.io](https://signpath.io/), certificate
+> by [SignPath Foundation](https://signpath.org/).
+
+It's in the README, along with a link to
+[`docs/CODE-SIGNING-POLICY.md`](docs/CODE-SIGNING-POLICY.md) — the code signing
+policy page they also expect, saying who can approve a signing request, how a
+release is built, and what a person can verify for themselves.
+
 ---
 
 ## Turning it on
