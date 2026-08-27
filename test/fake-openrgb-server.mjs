@@ -175,6 +175,33 @@ export const DEVICES = [
     color: [255, 0, 60],
   },
   {
+    // The board that produced the bug this fixture exists for. Two things
+    // make it different from every other device here, and both are real:
+    //
+    //   - It boots sitting in one of its own firmware effects, not in Direct.
+    //   - Its Direct mode is not mode 0.
+    //
+    // Write colour to it while it is still in "Spectrum Cycle" and the
+    // firmware keeps animating underneath: the two composite and every HARE
+    // effect comes out wrong. Switching it to "Off" instead stops the output
+    // entirely, so that is not a way out either.
+    name: "ASRock B650 Polychrome",
+    vendor: "ASRock",
+    type: 0, // motherboard
+    zones: [
+      { name: "RGB LED 1", ledsCount: 4 },
+      { name: "Addressable 1", ledsCount: 0, ledsMin: 0, ledsMax: 100 },
+    ],
+    activeMode: 3,
+    modes: [
+      { name: "Off", flags: 0 },
+      { name: "Static", flags: FLAG.modeSpecificColor },
+      { name: "Direct", flags: FLAG.perLedColor },
+      { name: "Spectrum Cycle", flags: FLAG.speed, speedMin: 0, speedMax: 255, speed: 128 },
+    ],
+    color: [10, 200, 90],
+  },
+  {
     name: "Vengeance RGB Pro",
     vendor: "Corsair",
     type: 1, // ram
@@ -315,8 +342,31 @@ export function startServer() {
           if (spec && data.length >= 10) {
             spec.color = [data[6], data[7], data[8]];
           }
-        } else if (commandId === 1100 || commandId === 1101) {
-          // setCustomMode / updateZoneLeds — no response expected
+        } else if (commandId === 1101 || commandId === 1102) {
+          // updateMode / saveMode. Applied rather than ignored, because the
+          // whole point of the direct-mode switch is that the device really
+          // leaves the firmware effect it was running — and a simulator that
+          // accepts the request and changes nothing is exactly the controller
+          // this is meant to catch.
+          //
+          // Body: 4-byte data size, then the mode index.
+          const spec = DEVICES[deviceId];
+          if (spec && data.length >= 8) {
+            const modeIndex = data.readInt32LE(4);
+            if (spec.modes[modeIndex]) {
+              spec.activeMode = modeIndex;
+              console.log(
+                `[fake-openrgb] device ${deviceId} is now in mode ${modeIndex} ("${spec.modes[modeIndex].name}")`
+              );
+            }
+          }
+        } else if (commandId === 1100) {
+          // setCustomMode. Deliberately does nothing here. Real controllers
+          // vary: the request is fire-and-forget, and one that doesn't
+          // implement it accepts it and keeps running its firmware effect.
+          // That is the ASRock Polychrome behaviour HARE has to survive, so
+          // the simulator behaves like the controllers that don't answer.
+          console.log(`[fake-openrgb] setCustomMode for device ${deviceId} (ignored, as some real controllers do)`);
         } else {
           console.log(`[fake-openrgb] received command ${commandId} (ignored, no response)`);
         }
