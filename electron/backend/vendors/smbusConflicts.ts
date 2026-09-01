@@ -136,3 +136,47 @@ export async function detectConflicts(): Promise<DetectedConflict[]> {
     app.processNames.some((name) => running.has(name.toLowerCase()))
   ).map(({ id, name, affects }) => ({ id, name, affects }));
 }
+
+/**
+ * One sentence naming what's holding the bus, for a person to act on.
+ *
+ * Deliberately says what to do, not what went wrong: "close X" is the whole
+ * fix, and anything about buses or detection sweeps is detail nobody needs
+ * in order to close a program.
+ */
+export function conflictMessage(conflicts: DetectedConflict[]): string {
+  const names = conflicts.map((c) => c.name);
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${list} ${names.length === 1 ? "is" : "are"} running. Close ${
+    names.length === 1 ? "it" : "them"
+  } and scan again.`;
+}
+
+/**
+ * Whether it is safe to start a fresh hardware scan right now.
+ *
+ * WHY A SCAN IS THE THING BEING GUARDED, AND NOT COLOUR WRITES
+ *
+ * Colour goes to controllers that have already been found. A *scan* is the
+ * part that walks raw SMBus addresses asking what's there, and SMBus
+ * tolerates one master at a time. Two programs sweeping it at once is the
+ * documented way to put a controller in an invalid state — and on DDR5 it is
+ * the shape of an open OpenRGB report where the SPD EEPROM on a stick of RAM
+ * ends up corrupted and the machine stops booting.
+ *
+ * Nothing here is speculative about HARE's own code: HARE speaks the OpenRGB
+ * SDK over TCP and has no way to address the bus at all. What it can do is
+ * decline to *start* a scan while another RGB application owns the bus, which
+ * is the one moment the danger is both real and knowable in advance.
+ *
+ * A scan blocked here was also a scan that was going to fail: with a vendor
+ * app holding the bus, detection returns nothing or garbage. So this costs no
+ * working functionality — it replaces a silent empty device list with a
+ * sentence naming the program to close.
+ */
+export async function scanBlockedBy(): Promise<DetectedConflict[]> {
+  return detectConflicts();
+}

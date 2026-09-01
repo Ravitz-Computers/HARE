@@ -3,6 +3,13 @@ import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import type { DeviceBackend } from "./deviceBackend.js";
+import {
+  fetchControllerData,
+  parseControllerData,
+  sendUpdateMode,
+  type ModeToSend,
+  type RawOrgbMode,
+} from "./openrgbRawDevice.js";
 import type { KLColor, KLDevice, KLDeviceType, KLMode, KLZone, BackendStatus, ModeParamsPatch } from "./types.js";
 
 // Typed against the real openrgb-sdk v0.6 API (github.com/Mola19/openrgb-sdk).
@@ -114,6 +121,40 @@ function toOrgbColor(c: KLColor): OrgbColor {
   return { red: c.r, green: c.g, blue: c.b };
 }
 
+/**
+ * The colours to send with a mode.
+ *
+ * A mode declares how many colours of its own it takes: `colorMin` is the
+ * fewest it will accept, and a mode that wants one and is given none has
+ * nothing to draw. On a Lian Li hub that is the difference between the modes
+ * that worked after mode-setting was fixed and the modes that appeared to do
+ * nothing — Spectrum Cycle and Rainbow Wave generate their own colours and
+ * came out fine, while Static, Breathing and Neon were set successfully and
+ * ran with an empty palette.
+ *
+ * A controller that already has colours for the mode reports them and they go
+ * straight back. When it reports none and the mode needs some, the device's
+ * current colour is used, so choosing a firmware effect keeps the colour that
+ * was already on the fans rather than replacing it with a decision nobody
+ * made. White is the last resort: visible, and obviously a default.
+ */
+function modeColorsFor(
+  mode: { colorMin: number; colorMax: number; colors: OrgbColor[] },
+  chosen: OrgbColor[] | undefined,
+  current: KLColor | undefined
+): OrgbColor[] {
+  const colors = [...(chosen ?? mode.colors)];
+  const needed = Math.max(0, mode.colorMin);
+  if (colors.length >= needed) return colors;
+
+  const fill = colors[colors.length - 1] ?? (current ? toOrgbColor(current) : { red: 255, green: 255, blue: 255 });
+  while (colors.length < needed) colors.push(fill);
+  // Never send more than the mode will take: the count is what the controller
+  // reads the rest of the block against, so an over-long palette is a
+  // malformed message rather than a generous one.
+  return mode.colorMax > 0 ? colors.slice(0, mode.colorMax) : colors;
+}
+
 function mapZones(zones: OrgbZone[]): KLZone[] {
   let cursor = 0;
   return zones.map((z) => {
@@ -177,6 +218,20 @@ export interface OpenRgbBackendOptions {
   connectTimeoutMs?: number;
   /** How many times to retry the initial socket connect before giving up (with backoff). Defaults to 4. */
   connectRetries?: number;
+  /**
+   * Asked before HARE starts an OpenRGB of its own, and only then.
+   *
+   * Returning a reason refuses the launch. Starting OpenRGB is what triggers
+   * a full hardware scan, including the SMBus sweep that must not run while
+   * another RGB application owns the bus — see vendors/smbusConflicts.ts.
+   * Connecting to a server that is *already* up is not gated, because that
+   * scan has already happened and nothing new is probed by joining it.
+   *
+   * A function rather than a flag so this file keeps no dependency on the
+   * vendor-detection code, and so tests can construct a backend with no gate
+   * at all.
+   */
+  beforeSpawn?: () => Promise<string | null>;
 }
 
 /**
@@ -196,6 +251,32 @@ export class OpenRgbBackend implements DeviceBackend {
   private spawnedProcess: ChildProcess | null = null;
   /** Devices we've already flipped into "Direct"/custom mode this session, so we don't resend it on every effect frame. */
   private customModeSet = new Set<number>();
+  /** Set when beforeSpawn refused to let HARE start OpenRGB, so connect() can report that rather than a socket error. */
+  private spawnRefusal: string | null = null;
+  /**
+   * The protocol version to ask openrgb-sdk to speak, or null to negotiate.
+   *
+   * Dropped a step at a time when the newest one produces data the SDK can't
+   * parse. Each older version simply has fewer fields in the reply, so there
+   * is less for a stale parser to get wrong — and HARE reads none of the
+   * fields that disappear (zone flags, device flags, alternate LED names,
+   * segments). See PROTOCOL_FALLBACKS.
+   */
+  private forcedProtocolVersion: number | null = null;
+  /** Devices whose data came back in a shape the SDK couldn't read, by index and reason. */
+  private unreadableDevices: { id: number; reason: string }[] = [];
+  /** Devices already known to need HARE's own parser, so they never take the failing path twice. */
+  private directReadDevices = new Set<number>();
+  /**
+   * The last direct read's mode records, exactly as the controller sent them.
+   *
+   * Kept because setting a mode means sending the whole mode block back, and
+   * two of its fields — the vendor's own effect number and the flags saying
+   * which fields are meaningful — exist nowhere else in HARE. Without them
+   * the only thing that can be sent is a fabricated block, and a fabricated
+   * block is what turned a fan hub's lights off on every mode.
+   */
+  private directModes = new Map<number, RawOrgbMode[]>();
 
   constructor(private opts: OpenRgbBackendOptions = {}) {}
 
@@ -323,6 +404,16 @@ private noteOpenRgbConfigOwnership(): void {
 
     const exe = this.opts.openRgbExePath;
     if (!exe || !existsSync(exe)) return;
+
+    // The one moment a scan can be refused before it happens. Everything
+    // below this line starts OpenRGB, and starting OpenRGB sweeps the SMBus.
+    const refusal = this.opts.beforeSpawn ? await this.opts.beforeSpawn() : null;
+    if (refusal) {
+      console.warn(`[HARE] Not starting OpenRGB: ${refusal}`);
+      this.spawnRefusal = refusal;
+      return;
+    }
+
     this.noteOpenRgbConfigOwnership();
     try {
       this.spawnedProcess = spawn(exe, ["--server", "--server-port", String(this.port)], {
@@ -344,9 +435,107 @@ private noteOpenRgbConfigOwnership(): void {
     }
   }
 
+  /**
+   * Protocol versions to try, newest first.
+   *
+   * `null` means "negotiate", which is what should work and what every
+   * healthy setup uses. The rest are deliberate step-downs for the case the
+   * negotiated reply is something openrgb-sdk can't parse.
+   *
+   * This is safe because every step removes fields rather than changing
+   * them, and HARE reads none of the ones that go: v5 adds zone flags,
+   * device flags and alternate LED names; v4 adds zone segments. Devices,
+   * zones, modes, LEDs and colours — everything HARE actually uses — are the
+   * same at v3. So a fallback costs nothing a user would notice, and the
+   * alternative is the whole device list.
+   */
+  private static readonly PROTOCOL_FALLBACKS: (number | null)[] = [null, 4, 3];
+
   async connect(): Promise<void> {
     this.setStatus("starting", "Looking for RGB hardware…");
     await this.maybeLaunchOpenRgb();
+
+    // Try the negotiated protocol first, then older ones, and keep whichever
+    // reads the MOST devices.
+    //
+    // Not just "the first one that connects": on a real machine the newest
+    // protocol read two of three devices and dropped a Lian Li fan controller
+    // whose reply openrgb-sdk walked off the end of. Two working devices is
+    // not success when the third is the one the user was asking about.
+    //
+    // Older versions are strictly smaller replies -- v5 adds zone flags,
+    // device flags and alternate LED names, v4 adds zone segments -- and HARE
+    // reads none of those, so a step down costs nothing except the chance
+    // that the awkward device parses. Reconnecting is also cheap and safe:
+    // joining a running server does not re-scan any hardware (see
+    // maybeLaunchOpenRgb), so this cannot touch the SMBus.
+    let lastParseFailure: unknown;
+    let best: { version: number | null; count: number } | null = null;
+
+    for (const version of OpenRgbBackend.PROTOCOL_FALLBACKS) {
+      this.forcedProtocolVersion = version;
+      let connected = false;
+      try {
+        await this.connectOnce();
+        connected = true;
+      } catch (err) {
+        if (!(err instanceof Error) || !this.isParseFailure(err)) throw err;
+        lastParseFailure = err;
+        console.warn(
+          `[HARE] Protocol ${version ?? "negotiated"}: couldn't read any device (${err.message})`
+        );
+      }
+
+      if (connected) {
+        const readable = this.devices.length;
+        const missed = this.unreadableDevices.length;
+        console.log(
+          `[HARE] Protocol ${version ?? "negotiated"}: read ${readable} device(s)` +
+            (missed > 0 ? `, couldn't read ${missed}` : "")
+        );
+        // Everything parsed. Nothing older can do better than that.
+        if (missed === 0) return;
+        if (!best || readable > best.count) best = { version, count: readable };
+      }
+
+      this.dropClient();
+    }
+
+    // Nothing read every device. Settle on whichever read the most rather
+    // than leaving the user with the last one tried, which may be the worst.
+    if (best) {
+      this.forcedProtocolVersion = best.version;
+      console.log(
+        `[HARE] Settling on protocol ${best.version ?? "negotiated"}, which read the most devices (${best.count}).`
+      );
+      await this.connectOnce();
+      return;
+    }
+
+    throw lastParseFailure instanceof Error
+      ? lastParseFailure
+      : new Error("Couldn't read the device list at any protocol version.");
+  }
+
+  /** Closes and forgets the current client, so the next attempt starts clean. */
+  private dropClient(): void {
+    try {
+      this.client?.disconnect();
+    } catch {
+      // Already broken; this is only cleanup before the next attempt.
+    }
+    this.client = null;
+  }
+
+  /**
+   * Whether a failure came from parsing the reply rather than reaching the
+   * server. Only a parse failure is worth retrying at an older protocol.
+   */
+  private isParseFailure(err: Error): boolean {
+    return err.message.includes("couldn't read the device list");
+  }
+
+  private async connectOnce(): Promise<void> {
 
     const timeoutMs = this.opts.connectTimeoutMs ?? 3000;
     // openrgb-sdk is CommonJS, and it defines its named exports via
@@ -356,9 +545,15 @@ private noteOpenRgbConfigOwnership(): void {
     // export (it's undefined) — the real constructor only shows up on
     // `.default.Client`. Handle both shapes defensively in case a future
     // package version changes how it exports.
+    type ClientCtor = new (
+      name: string,
+      port: number,
+      host: string,
+      settings?: { forceProtocolVersion?: number }
+    ) => OpenRgbClient;
     const openRgbModule = (await import("openrgb-sdk")) as unknown as {
-      Client?: new (name: string, port: number, host: string) => OpenRgbClient;
-      default?: { Client: new (name: string, port: number, host: string) => OpenRgbClient };
+      Client?: ClientCtor;
+      default?: { Client: ClientCtor };
     };
     const Client = openRgbModule.Client ?? openRgbModule.default?.Client;
     if (!Client) {
@@ -376,7 +571,12 @@ private noteOpenRgbConfigOwnership(): void {
     const delaysMs = [500, 1000, 2000, 3000];
     let lastError: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
-      const client = new Client(this.opts.clientName ?? "HARE", this.port, this.host);
+      const client = new Client(
+        this.opts.clientName ?? "HARE",
+        this.port,
+        this.host,
+        this.forcedProtocolVersion === null ? {} : { forceProtocolVersion: this.forcedProtocolVersion }
+      );
       // MANDATORY, not defensive: openrgb-sdk's Client re-emits its socket's
       // "error" event (ECONNRESET if OpenRGB closes/crashes mid-session, a
       // network hiccup, etc.) as its own "error" event, and Node's
@@ -393,12 +593,6 @@ private noteOpenRgbConfigOwnership(): void {
       client.on("error", (err) => this.handleClientError(client, err));
       try {
         await client.connect(timeoutMs);
-        this.client = client;
-        this.customModeSet.clear();
-        this.setStatus("scanning", "Scanning for devices…");
-        await this.refreshDevices();
-        this.setStatus("connected", `Connected — ${this.devices.length} device(s) found`);
-        return;
       } catch (err) {
         lastError = err;
         try {
@@ -409,7 +603,42 @@ private noteOpenRgbConfigOwnership(): void {
         if (attempt < attempts - 1) {
           await new Promise((r) => setTimeout(r, delaysMs[attempt] ?? 2000));
         }
+        continue;
       }
+
+      // Connected. Everything past this point is a *different* failure with a
+      // different cause, and must not be retried as though the socket were at
+      // fault or reported as one.
+      //
+      // This distinction cost a real user their whole device list. A parsing
+      // bug in openrgb-sdk threw while reading the controller data, the throw
+      // landed in the catch above, and HARE retried four times and reported
+      // "Couldn't reach an OpenRGB server ... (Invalid array length)" — on a
+      // machine where OpenRGB was running perfectly and its own window showed
+      // every device. The message sent them looking for a connection problem
+      // that did not exist. See scripts/patch-openrgb-sdk.mjs.
+      this.client = client;
+      this.customModeSet.clear();
+      this.setStatus("scanning", "Scanning for devices…");
+      try {
+        await this.refreshDevices();
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Connected to OpenRGB, but couldn't read the device list it sent back (${detail}). ` +
+            "OpenRGB itself is running — its own window will still show your devices.",
+          { cause: err }
+        );
+      }
+      this.setStatus("connected", `Connected — ${this.devices.length} device(s) found`);
+      return;
+    }
+    // If HARE declined to start OpenRGB, say that instead of "couldn't reach
+    // a server". Both are true; only one tells the person what to do, and a
+    // connection error here would send them looking for a problem that isn't
+    // theirs.
+    if (this.spawnRefusal) {
+      throw new Error(this.spawnRefusal);
     }
     const reason = lastError instanceof Error ? lastError.message : String(lastError);
     throw new Error(`Couldn't reach an OpenRGB server on ${this.host}:${this.port} after ${attempts} attempts (${reason})`);
@@ -453,16 +682,133 @@ private noteOpenRgbConfigOwnership(): void {
     this.setStatus("connected", `Connected — ${this.devices.length} device(s) found`);
   }
 
+  /**
+   * Reads every device, and refuses to let one bad reply cost all of them.
+   *
+   * This used to be a plain loop. One device whose data openrgb-sdk couldn't
+   * parse threw, the throw came out of refreshDevices, and the user got zero
+   * devices on a PC full of working hardware — twice, on two different
+   * parsing bugs. Whatever the next one turns out to be, a keyboard should
+   * not disappear because a fan controller sent a field the parser didn't
+   * expect.
+   *
+   * So each device is read on its own. What can be read is kept; what can't
+   * is recorded by index and named in the log, which is also the only way
+   * anyone finds out *which* device is the awkward one.
+   */
   private async refreshDevices(): Promise<void> {
     if (!this.client) return;
     const count = await this.client.getControllerCount();
     const devices: KLDevice[] = [];
+    const unreadable: { id: number; reason: string }[] = [];
+
     for (let i = 0; i < count; i++) {
-      const raw = await this.client.getControllerData(i);
-      devices.push(mapDevice(raw));
+      try {
+        // readOneDevice falls back to HARE's own parser for a device
+        // openrgb-sdk can't read, and remembers it so the next read of that
+        // device goes straight there.
+        const device = await this.readOneDevice(i);
+        if (device) devices.push(device);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        unreadable.push({ id: i, reason });
+        console.warn(
+          `[HARE] Device ${i} of ${count} sent data HARE couldn't read (${reason}). ` +
+            "Skipping it and carrying on with the rest."
+        );
+      }
     }
+
+    // Nothing readable at all is a different situation: it means the parser
+    // and the server disagree about the protocol rather than one odd device,
+    // and connect() can still do something about that.
+    if (devices.length === 0 && unreadable.length > 0) {
+      throw new Error(unreadable[0].reason, { cause: unreadable[0] });
+    }
+
     this.devices = devices;
+    this.unreadableDevices = unreadable;
+    if (unreadable.length > 0) {
+      console.warn(
+        `[HARE] ${unreadable.length} of ${count} device(s) couldn't be read. ` +
+          `Showing the other ${devices.length}.`
+      );
+    }
     this.emitDevices();
+  }
+
+  /**
+   * Reads one device with HARE's own parser, after openrgb-sdk failed on it.
+   *
+   * Deliberately narrow. It runs only for a device that has already thrown,
+   * and only when the throw is the parser losing its place in the reply —
+   * "offset out of range" and its relatives. A timeout, a dropped socket or a
+   * server that went away are not parsing problems and get nothing from
+   * trying a second parser on them.
+   */
+  /**
+   * Reads one device, however it has to be read.
+   *
+   * The single place that knows a device might need HARE's own parser. Once a
+   * device has needed it, it is remembered and goes straight there — the
+   * alternative is throwing and recovering on every single read of that
+   * device, which on a machine with one awkward controller produced a
+   * hundred-line wall of recovered rejections in the log for one button press.
+   */
+  private async readOneDevice(deviceId: number): Promise<KLDevice | null> {
+    if (!this.client) return null;
+
+    if (this.directReadDevices.has(deviceId)) {
+      return this.readDeviceDirectly(deviceId, "out of range");
+    }
+    try {
+      return mapDevice(await this.client.getControllerData(deviceId));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      const rescued = await this.readDeviceDirectly(deviceId, reason);
+      if (rescued) {
+        this.directReadDevices.add(deviceId);
+        return rescued;
+      }
+      throw err;
+    }
+  }
+
+  private async readDeviceDirectly(deviceId: number, reason: string): Promise<KLDevice | null> {
+    if (!/out of range|Invalid array length|Attempt to access memory/i.test(reason)) return null;
+
+    try {
+      const version = this.forcedProtocolVersion ?? 5;
+      const raw = await fetchControllerData(
+        this.host,
+        this.port,
+        deviceId,
+        version,
+        this.opts.clientName ?? "HARE"
+      );
+      const parsed = parseControllerData(raw, deviceId, version);
+      // Kept before mapping, because mapping is what loses the fields a mode
+      // change has to send back. See `directModes`.
+      this.directModes.set(deviceId, parsed.modes);
+      const device = mapDevice(parsed);
+      console.log(
+        `[HARE] Device ${deviceId} (${device.name}) was unreadable by openrgb-sdk and ` +
+          `was read by HARE directly instead — ${device.zones.length} zone(s), ${device.colors.length} LED(s).`
+      );
+      return device;
+    } catch (err) {
+      console.warn(
+        `[HARE] Device ${deviceId} couldn't be read directly either: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      return null;
+    }
+  }
+
+  /** Devices OpenRGB reported that HARE couldn't parse, so the UI can say so instead of pretending they don't exist. */
+  getUnreadableDevices(): { id: number; reason: string }[] {
+    return this.unreadableDevices;
   }
 
   /**
@@ -528,7 +874,10 @@ private noteOpenRgbConfigOwnership(): void {
           `to "${direct.name}" so HARE's colours aren't drawn on top of a firmware effect.`
       );
       try {
-        await this.client.updateMode(deviceId, direct.id);
+        // applyMode, not the library: on a device the library's parser can't
+        // read, updateMode re-reads it first and throws, so the switch out of
+        // a firmware effect would fail on exactly the devices that need it.
+        if (!(await this.applyMode(deviceId, direct.id, {}, false))) return;
         device.activeModeId = direct.id;
         device.activeEffectId = null;
         this.emitDevices();
@@ -570,6 +919,18 @@ private noteOpenRgbConfigOwnership(): void {
       console.warn(`[HARE] Asked to colour device ${deviceId}, which isn't in the list.`);
       return;
     }
+    // A device with no LEDs has nowhere to put a colour. Writing anyway
+    // "succeeded" and did nothing, and the log dutifully recorded
+    // "Writing rgb(255, 46, 122) to all 0 LEDs" — which is a sentence that
+    // should never have needed to be written.
+    if (device.colors.length === 0) {
+      console.warn(
+        `[HARE] ${device.name} reports no LEDs, so there is nowhere to put a colour. ` +
+          "Set the length of its zones on the device's page first."
+      );
+      return;
+    }
+
     await this.ensureCustomMode(deviceId);
     const full = new Array(device.colors.length).fill(toOrgbColor(color));
     // Deliberate colour changes are logged; effect frames are not, or a log
@@ -602,7 +963,11 @@ private noteOpenRgbConfigOwnership(): void {
     const client = this.client;
     if (!client) return;
     try {
-      const fresh = (await client.getControllerData(deviceId)) as OrgbDevice | undefined;
+      // Through readOneDevice, not the library directly: on a device the
+      // library's parser can't read, a direct call throws, and the catch below
+      // turned every colour change on a working fan hub into "HARE can't tell
+      // whether the write took" — a warning about the device, caused by HARE.
+      const fresh = await this.readOneDevice(deviceId);
       const actual = fresh?.colors?.[0];
       if (!actual) {
         console.warn(
@@ -611,17 +976,17 @@ private noteOpenRgbConfigOwnership(): void {
         return;
       }
       console.log(
-        `[HARE] Read back rgb(${actual.red}, ${actual.green}, ${actual.blue}) ` +
+        `[HARE] Read back rgb(${actual.r}, ${actual.g}, ${actual.b}) ` +
           `after asking for rgb(${expected.r}, ${expected.g}, ${expected.b}). ` +
-          `Active mode is now "${fresh?.modes?.[fresh.activeMode ?? 0]?.name ?? "unknown"}".`
+          `Active mode is now "${fresh?.modes?.find((m) => m.id === fresh.activeModeId)?.name ?? "unknown"}".`
       );
 
       // Exact equality is too strict: some controllers quantise colour, so a
       // near miss is still a device that is listening.
       const close =
-        Math.abs(actual.red - expected.r) <= 8 &&
-        Math.abs(actual.green - expected.g) <= 8 &&
-        Math.abs(actual.blue - expected.b) <= 8;
+        Math.abs(actual.r - expected.r) <= 8 &&
+        Math.abs(actual.g - expected.g) <= 8 &&
+        Math.abs(actual.b - expected.b) <= 8;
 
       const device = this.devices.find((d) => d.id === deviceId);
       if (close) {
@@ -643,7 +1008,7 @@ private noteOpenRgbConfigOwnership(): void {
           console.warn(
             `[HARE] ${device?.name ?? `Device ${deviceId}`} accepted a colour but didn't change. ` +
               `Asked for rgb(${expected.r}, ${expected.g}, ${expected.b}), it reports ` +
-              `rgb(${actual.red}, ${actual.green}, ${actual.blue}). ` +
+              `rgb(${actual.r}, ${actual.g}, ${actual.b}). ` +
               "Re-applying direct mode; if this repeats, another RGB app is probably driving it."
           );
           this.emitDevices();
@@ -690,7 +1055,33 @@ private noteOpenRgbConfigOwnership(): void {
 
     // Resizing changes the whole device's LED layout, so the fresh data has
     // to come from the server — every later write depends on the new counts.
-    await this.refreshSingleDevice(deviceId);
+    const reread = await this.refreshSingleDevice(deviceId);
+
+    // If it couldn't be re-read, take the size on trust rather than leaving
+    // the zone reading zero. Leaving it at zero is not neutral: the automatic
+    // header sizing looks for zero-length zones, so the device gets resized
+    // again on the next pass, and again, for ever — while every colour
+    // written to it goes into a zone HARE believes is empty.
+    if (!reread) {
+      const stale = this.devices.find((d) => d.id === deviceId);
+      const staleZone = stale?.zones.find((z) => z.id === zoneId);
+      if (stale && staleZone && staleZone.ledCount !== size) {
+        const delta = size - staleZone.ledCount;
+        staleZone.ledCount = size;
+        // Every zone after this one starts further along the strip.
+        for (const other of stale.zones) {
+          if (other.ledStart > staleZone.ledStart) other.ledStart += delta;
+        }
+        const total = stale.zones.reduce((sum, z) => sum + z.ledCount, 0);
+        while (stale.colors.length < total) stale.colors.push({ r: 0, g: 0, b: 0 });
+        stale.colors.length = total;
+        console.log(
+          `[HARE] Couldn't re-read ${stale.name} after resizing, so HARE is taking ` +
+            `"${staleZone.name}" at ${size} LEDs on trust.`
+        );
+        this.emitDevices();
+      }
+    }
     // A zone that just gained LEDs needs the device put back into a
     // direct-colour mode before anything will show on it.
     this.customModeSet.delete(deviceId);
@@ -736,7 +1127,7 @@ private noteOpenRgbConfigOwnership(): void {
 
   async setNativeMode(deviceId: number, modeId: number): Promise<void> {
     if (!this.client) return;
-    await this.client.updateMode(deviceId, modeId);
+    if (!(await this.applyMode(deviceId, modeId, {}, false))) return;
     this.customModeSet.delete(deviceId); // leaving Direct mode — re-arm ensureCustomMode next time we want it back
     const device = this.devices.find((d) => d.id === deviceId);
     if (device) {
@@ -769,10 +1160,94 @@ private noteOpenRgbConfigOwnership(): void {
     if (patch.colorMode !== undefined) modeInput.colorMode = patch.colorMode;
     if (patch.colors !== undefined) modeInput.colors = patch.colors.map(toOrgbColor);
 
-    if (persist) await this.client.saveMode(deviceId, modeInput);
-    else await this.client.updateMode(deviceId, modeInput);
+    if (!(await this.applyMode(deviceId, modeId, patch, persist, modeInput))) return;
 
     await this.refreshSingleDevice(deviceId);
+  }
+
+  /**
+   * Changes a device's mode, by whichever route works for that device.
+   *
+   * openrgb-sdk's own `updateMode` re-reads the entire device before sending,
+   * so on a device its parser can't read, *every* mode change throws before
+   * anything reaches the hardware. That is what made all eighteen of a fan
+   * hub's built-in modes fail on a machine where the hub was otherwise
+   * working — the device was fine, the read on the way in was not.
+   *
+   * For those devices HARE builds and sends the message itself, from the mode
+   * it already parsed. Everything else keeps using the library.
+   *
+   * Returns false if there was nothing to send.
+   */
+  private async applyMode(
+    deviceId: number,
+    modeId: number,
+    patch: ModeParamsPatch,
+    persist: boolean,
+    modeInput?: OrgbModeInput
+  ): Promise<boolean> {
+    if (!this.client) return false;
+
+    if (!this.directReadDevices.has(deviceId)) {
+      const input = modeInput ?? modeId;
+      if (persist) await this.client.saveMode(deviceId, input);
+      else await this.client.updateMode(deviceId, input);
+      return true;
+    }
+
+    const device = this.devices.find((d) => d.id === deviceId);
+    // The controller's own description of the mode, kept verbatim from the
+    // last direct read. Not HARE's mapped copy: that one drops `value` and
+    // `flags`, which are the two fields the hardware actually acts on.
+    const raw = this.directModes.get(deviceId)?.find((m) => m.id === modeId);
+    if (!device || !raw) {
+      console.warn(
+        `[HARE] Can't set mode ${modeId} on device ${deviceId}: HARE doesn't have the controller's ` +
+          "own description of it, and sending a made-up one is how the lights get turned off."
+      );
+      return false;
+    }
+
+    // The controller's record, with only what the user changed on top of it.
+    //
+    // Everything not in the patch is echoed back exactly as it arrived. That
+    // is the whole point: `value` is the vendor's private effect number and
+    // `flags` says which fields mean anything, so both have to be the
+    // controller's own. An earlier version defaulted them to zero and sent
+    // brightness 0 with them — every mode on a Lian Li hub then read as
+    // "vendor effect 0, brightness 0" and switched the fans off.
+    const toSend: ModeToSend = {
+      index: raw.id,
+      name: raw.name,
+      value: raw.value,
+      flags: raw.flags,
+      speedMin: raw.speedMin,
+      speedMax: raw.speedMax,
+      brightnessMin: raw.brightnessMin,
+      brightnessMax: raw.brightnessMax,
+      colorMin: raw.colorMin,
+      colorMax: raw.colorMax,
+      speed: patch.speed ?? raw.speed,
+      brightness: patch.brightness ?? raw.brightness,
+      direction: patch.direction ?? raw.direction,
+      colorMode: patch.colorMode ?? raw.colorMode,
+      colors: modeColorsFor(raw, patch.colors?.map(toOrgbColor), device.colors[0]),
+    };
+
+    await sendUpdateMode(
+      this.host,
+      this.port,
+      deviceId,
+      this.forcedProtocolVersion ?? 5,
+      toSend,
+      persist,
+      this.opts.clientName ?? "HARE"
+    );
+    console.log(
+      `[HARE] Set ${device.name} to "${raw.name}" directly, without the library ` +
+        `(effect ${raw.value}, flags ${raw.flags}, brightness ${toSend.brightness ?? "unset"}).`
+    );
+    return true;
   }
 
   /** Advanced Mode: pushes a full per-device LED color array directly, same underlying path as the effects engine but driven by the user's own raw painter instead of a computed animation frame. */
@@ -781,14 +1256,36 @@ private noteOpenRgbConfigOwnership(): void {
   }
 
   /** Re-fetches one device's controller data and replaces it in the cached list — used after updateModeParams since the mode's own fields (speed/brightness/direction/colorMode/colors) just changed on the hardware side. */
-  private async refreshSingleDevice(deviceId: number): Promise<void> {
-    if (!this.client) return;
-    const raw = await this.client.getControllerData(deviceId);
-    const mapped = mapDevice(raw);
-    const idx = this.devices.findIndex((d) => d.id === deviceId);
-    if (idx >= 0) this.devices[idx] = mapped;
-    else this.devices.push(mapped);
-    this.emitDevices();
+  /**
+   * Re-reads one device after something changed it.
+   *
+   * Never rejects. It used to, and every caller treated it as incidental —
+   * `resizeZone` awaited it, the automatic header sizing called that eight
+   * times without awaiting, and one unreadable controller turned a single
+   * click into eight recovered promise rejections and a failed IPC handler.
+   * Failing to re-read is a stale device list, not a failed operation.
+   *
+   * Returns whether the read succeeded, so a caller that changed something
+   * can decide what to do about not being able to confirm it.
+   */
+  private async refreshSingleDevice(deviceId: number): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const mapped = await this.readOneDevice(deviceId);
+      if (!mapped) return false;
+      const idx = this.devices.findIndex((d) => d.id === deviceId);
+      if (idx >= 0) this.devices[idx] = mapped;
+      else this.devices.push(mapped);
+      this.emitDevices();
+      return true;
+    } catch (err) {
+      console.warn(
+        `[HARE] Couldn't re-read device ${deviceId} after changing it: ${
+          err instanceof Error ? err.message : String(err)
+        }. Keeping what HARE already knew about it.`
+      );
+      return false;
+    }
   }
 
   onDevicesChanged(cb: (devices: KLDevice[]) => void): () => void {

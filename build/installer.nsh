@@ -11,6 +11,25 @@
 ; and re-defining an existing name is NSIS warning 6003 -- which, because
 ; warnings are errors here, would fail the whole build rather than the line.
 !macro customHeader
+  ; --- Let people watch, if they want to -----------------------------------
+  ;
+  ; electron-builder's own common.nsh sets `ShowInstDetails nevershow`, which
+  ; removes the log *and* the button that reveals it. That leaves a progress
+  ; bar and nothing else while setup installs two other people's software --
+  ; and it made every DetailPrint in this file write to somewhere nobody can
+  ; look, including the ones that say what the driver and the runtime are
+  ; doing.
+  ;
+  ; `hide` is the middle setting, and the one that was wanted all along: the
+  ; log starts collapsed behind a "Show details" button, so the wizard is
+  ; still quiet for people who don't care and completely open to people who
+  ; do. Set here rather than in electron-builder's template because
+  ; customHeader is expanded after common.nsh, so this wins.
+  ShowInstDetails hide
+  !ifdef BUILD_UNINSTALLER
+    ShowUninstDetails hide
+  !endif
+
   ; --- The dark header and welcome/finish pages, matching the app ----------
   !ifdef MUI_BGCOLOR
     !undef MUI_BGCOLOR
@@ -126,6 +145,20 @@ FunctionEnd
 !endif
 
 !macro customInstall
+  ; --- Make "Show details" show something ----------------------------------
+  ;
+  ; electron-builder's installSection.nsh opens with `SetDetailsPrint none`,
+  ; which silences every DetailPrint for the rest of the section. With the log
+  ; button now revealed, that produced the worst of both: a Show details
+  ; button that opens an empty box.
+  ;
+  ; `listonly` writes into the log without touching the status line above the
+  ; progress bar, which electron-builder is using for its own text. The file
+  ; extraction has already happened by the time this macro runs, so what shows
+  ; up is exactly the interesting part -- the two other installers HARE runs.
+  SetDetailsPrint listonly
+  DetailPrint "Setting up the parts HARE needs..."
+
   ; --- The Visual C++ runtime OpenRGB needs -------------------------------
   ;
   ; OpenRGB is built against it, and without it OpenRGB.exe simply fails to
@@ -169,9 +202,9 @@ FunctionEnd
 
   ; The runtime installer is 25 MB and is finished with the moment ExecWait
   ; returns. Leaving it in Program Files for the life of the installation is
-  ; 25 MB of nothing, so it goes. (The PawnIO installer stays: it's launched
-  ; without waiting, and Settings re-uses that exact file for the in-app
-  ; "install the driver" button.)
+  ; 25 MB of nothing, so it goes. (The PawnIO installer stays: Settings
+  ; re-uses that exact file for the in-app "install the driver" button, and
+  ; for the fallback below if the silent install doesn't take.)
   Delete "$INSTDIR\resources\redist\vc_redist.x64.exe"
   RMDir "$INSTDIR\resources\redist"
 
@@ -182,33 +215,50 @@ FunctionEnd
   StrCpy $1 "$INSTDIR\resources\pawnio\PawnIO-Setup.exe"
   IfFileExists "$1" 0 pawnio_done
 
-  ; Launched, NOT waited on, and with NO flags.
+  ; Installed silently, with the switch PawnIO's own publisher declares.
   ;
-  ; The previous version tried three silent switches in turn and waited for
-  ; each. The installer showed an error dialog for the ones it didn't
-  ; recognise, and because nsExec waits, setup blocked on a modal window that
-  ; nobody could see -- the install simply hung. That is a far worse failure
-  ; than asking someone to click Next.
+  ; An earlier version guessed at three slash-style switches (/S, /VERYSILENT
+  ; and friends), waited for each, and hung setup on a modal error dialog
+  ; nobody could see. The lesson taken from that was "never guess a switch" --
+  ; which was right -- but the conclusion drawn was that no silent switch
+  ; existed, which was wrong. PawnIO's switch is dash-style, and it is
+  ; declared by the publisher in PawnIO's own winget manifest in
+  ; microsoft/winget-pkgs:
   ;
-  ; So: no guessing. It runs with no arguments, in its own window, and `Exec`
-  ; returns immediately. HARE's install finishes regardless, and PawnIO's
-  ; installer is just another window on screen -- which is honest about what
-  ; is being installed, and cannot hang anything.
-  ; An unattended install gets no driver.
+  ;   Silent: -install -silent
   ;
-  ; PawnIO's installer is packed, so which framework built it cannot be read
-  ; from the file, and no silent switch is documented. Guessing produced an
-  ; error dialog and hung setup for real -- doing that inside a `winget
-  ; install` nobody is watching would be worse. So a silent install skips it,
-  ; and HARE's own Settings page installs it later with one click, which is a
-  ; path that already exists and is already tested.
-  IfSilent 0 pawnio_visible
-    DetailPrint "Silent install: skipping the PawnIO driver. Install it from Settings > Hardware."
-    Goto pawnio_done
-  pawnio_visible:
+  ; That matters for two reasons. An unattended install (`winget install`,
+  ; which passes /S) can now install the driver instead of skipping it. And
+  ; an ordinary install no longer leaves PawnIO's window sitting on top of
+  ; HARE's finish page, where people closed HARE's installer by mistake or
+  ; assumed setup had stalled.
+  ;
+  ; Waiting is safe now in a way it was not before: a silent installer has no
+  ; window to block on.
+  DetailPrint "Installing the PawnIO driver (motherboard and RAM lighting)..."
+  ExecWait '"$1" -install -silent' $0
+  DetailPrint "PawnIO installer finished (code $0)."
 
-  DetailPrint "Starting the PawnIO driver installer (motherboard and RAM lighting)..."
-  Exec '"$1"'
+  ; Did it actually install? The exit code is not the answer on its own --
+  ; reporting success while nothing happened is a failure this project has
+  ; shipped before, twice. The service either exists now or it does not.
+  Call CheckPawnIO
+  StrCmp $PawnIOPresent "yes" pawnio_installed 0
+
+  ; It didn't take. Fall back to exactly the old behaviour: launch the
+  ; installer visibly, without waiting, so a person can click through it. An
+  ; unattended install has nobody to click, so it is left to HARE's own
+  ; Settings > Hardware page instead -- a path that already exists and is
+  ; already tested.
+  IfSilent pawnio_silent_gaveup 0
+    DetailPrint "Silent install didn't take -- opening the PawnIO installer."
+    Exec '"$1"'
+    Goto pawnio_installed
+  pawnio_silent_gaveup:
+    DetailPrint "PawnIO didn't install. It can be installed from Settings > Hardware."
+    Goto pawnio_done
+
+pawnio_installed:
   ; Recorded so the uninstaller knows this one is ours to remove. Without the
   ; marker the uninstaller leaves every PawnIO alone, which is the safe
   ; default -- and which meant a driver HARE installed was never cleaned up.
@@ -231,6 +281,10 @@ pawnio_done:
 ; because NSIS only removes what it installed.
 
 !macro customUnInstall
+  ; Same as customInstall: without this the uninstaller's log is empty too.
+  SetDetailsPrint listonly
+  DetailPrint "Removing what HARE installed..."
+
   ; --- 1. The elevated scheduled task -------------------------------------
   ; Removing it needs the same rights that created it. The uninstaller is not
   ; elevated, so this is raised through PowerShell exactly the way the app

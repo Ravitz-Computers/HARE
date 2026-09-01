@@ -13,7 +13,7 @@ import { AppSettingsStore } from "./backend/appSettings.js";
 import { GalleryStore } from "./backend/galleryStore.js";
 import { VendorManager } from "./backend/vendors/vendorManager.js";
 import { detectLcdDisplays } from "./backend/displays/krakenLcd.js";
-import { KrakenLcdDriver } from "./backend/displays/krakenLcdDriver.js";
+import { createScreenDriver, type ScreenDriver } from "./backend/displays/screenDriver.js";
 import { ElevationHelper } from "./backend/elevationHelper.js";
 import { DevicePrefsStore } from "./backend/devicePrefsStore.js";
 import { ModuleManager } from "./backend/modules/moduleManager.js";
@@ -167,7 +167,7 @@ const startedByWindows = process.argv.includes(STARTED_BY_WINDOWS_FLAG);
  * the only address HARE will ever open a mail window for is this one.
  * Keep in step with COMPANY.email in src/lib/appInfo.ts.
  */
-const BUG_REPORT_EMAIL = "avrumi@ravitzcomputers.com";
+const BUG_REPORT_EMAIL = "support@ravitzcomputers.com";
 
 /** Applies (or removes) Windows' "run at login" registration to match the setting. No-op outside a packaged build — registering the dev Electron binary to launch at login would be actively unhelpful. */
 function applyLaunchOnStartup(enabled: boolean): void {
@@ -269,6 +269,59 @@ function applyNavigationGuards(win: BrowserWindow): void {
 
   // Belt and braces: a renderer process should never be attaching webviews.
   win.webContents.on("will-attach-webview", (event) => event.preventDefault());
+
+  captureRendererConsole(win);
+}
+
+/**
+ * Puts the window's own warnings and errors into the diagnostic log.
+ *
+ * The logger captures the *main* process's console, which is where HARE's
+ * hardware messages go — so a log looks complete while being blind to half
+ * the application. Anything that throws while React is rendering throws in
+ * the renderer, and none of it was reaching the file.
+ *
+ * That cost three rounds of diagnosis on one bug. A screen panel threw on a
+ * screen with no saved settings, React replaced it with an error card, and
+ * the log for that session recorded nothing at all — so it was reported as
+ * "the tab won't open", then as "the screen doesn't allow any control", with
+ * no way in from either. The message had existed the whole time, in a console
+ * nobody was reading.
+ *
+ * Warnings and errors only. `console.log` in the renderer is per-frame chatter
+ * from the effects and screen loops, and a log that scrolls is a log nobody
+ * reads.
+ */
+function captureRendererConsole(win: BrowserWindow): void {
+  // Electron changed this event's shape mid-life: older versions pass
+  // (event, level, message, line, sourceId) with a numeric level, newer ones
+  // a single details object with a string level. Both are handled, because
+  // the alternative is an empty log on whichever version this wasn't written
+  // against.
+  win.webContents.on(
+    "console-message",
+    (
+      first: { level?: string | number; message?: string; sourceId?: string; lineNumber?: number },
+      legacyLevel?: number,
+      legacyMessage?: string,
+      legacyLine?: number,
+      legacySource?: string
+    ) => {
+      const level = typeof first === "object" && first ? first.level : legacyLevel;
+      const message = typeof first === "object" && first ? first.message : legacyMessage;
+      const source = typeof first === "object" && first ? first.sourceId : legacySource;
+      const line = typeof first === "object" && first ? first.lineNumber : legacyLine;
+      if (!message) return;
+
+      // Numeric: 0 verbose, 1 info, 2 warning, 3 error. String: the names.
+      const isError = level === 3 || level === "error";
+      const isWarning = level === 2 || level === "warning" || level === "warn";
+      if (!isError && !isWarning) return;
+
+      const where = source ? ` (${source}${line ? `:${line}` : ""})` : "";
+      logger.write(isError ? "error" : "warn", `[window] ${message}${where}`);
+    }
+  );
 }
 
 /**
@@ -591,9 +644,12 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC.GET_STATE, () => manager.getState());
   ipcMain.handle(IPC.GET_EFFECTS, () => EFFECTS);
 
-  ipcMain.handle(IPC.RESCAN, async () => {
-    await manager.rescan();
-    return manager.getState();
+  // `force` is the user answering "scan anyway" to a refusal. The refusal is
+  // advice, not a lock: blockedBy comes back non-empty and nothing was
+  // scanned, and the UI offers the override.
+  ipcMain.handle(IPC.RESCAN, async (_e, force?: boolean) => {
+    const blockedBy = await manager.rescan(force === true);
+    return { state: manager.getState(), blockedBy };
   });
 
   ipcMain.handle(IPC.SET_DEVICE_COLOR, async (_e, deviceId: number, color: KLColor) => {
@@ -695,8 +751,12 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC.DISCOVER_DEVICES, async () => {
     await deviceDb.checkAndAutoApply();
     broadcastDeviceDbStatus();
-    await manager.rescan();
-    return { state: manager.getState(), dbStatus: deviceDb.getStatus() };
+    // Discover is a scan button, so it is guarded like the other one. A
+    // refusal has to come back rather than being logged and swallowed --
+    // "pressed Discover, nothing happened, no reason given" is the exact
+    // failure this project keeps finding and fixing.
+    const blockedBy = await manager.rescan();
+    return { state: manager.getState(), dbStatus: deviceDb.getStatus(), blockedBy };
   });
 
   registerGalleryAndBackupHandlers();
@@ -714,6 +774,12 @@ function registerSensorHandlers() {
 
   // Watching is per-window and released when that window goes away, so a
   // closed dashboard can never leave the hub polling forever.
+  //
+  // Per *window*, not per caller: several things inside one window want
+  // sensors at once, so the renderer counts its own claims and only sends the
+  // edges. See `sensorClaims` in src/state/store.ts — without that count, one
+  // panel closing released the claim every other part of the window was
+  // relying on, and the readings quietly stopped updating.
   ipcMain.handle(IPC.WATCH_SENSORS, (event, watching: boolean) => {
     const id = event.sender.id;
     const existing = sensorWatchers.get(id);
@@ -1236,16 +1302,18 @@ function registerVendorHandlers() {
 async function withScreen<T>(
   vendorId: number,
   productId: number,
-  run: (driver: KrakenLcdDriver) => T | Promise<T>
+  run: (driver: ScreenDriver) => T | Promise<T>
 ): Promise<T | { ok: false; message: string }> {
   const screens = await detectLcdDisplays();
   const screen = screens.find((s) => s.vendorId === vendorId && s.productId === productId);
   if (!screen) return { ok: false, message: "That screen isn't connected any more." };
-  if (!screen.controllable) {
+
+  // One lookup decides which protocol this is. Adding a third cooler is a
+  // table entry and a branch in createScreenDriver, and nothing here changes.
+  const driver = createScreenDriver(screen);
+  if (!driver) {
     return { ok: false, message: `HARE can see ${screen.name} but can't drive its screen yet.` };
   }
-
-  const driver = new KrakenLcdDriver(screen);
   const opened = await driver.open();
   if (!opened.ok) return opened;
   try {
@@ -1313,6 +1381,28 @@ async function logDiagnosticInventory(): Promise<void> {
       );
     }
     console.log("[HARE]   (* = a mode that accepts per-LED colour from software)");
+
+    // Screens, which are found over USB HID rather than through OpenRGB.
+    //
+    // Recorded because the log was silent about them, and "is my cooler's
+    // screen detected?" turned out to be unanswerable from a log that lists
+    // every RGB device and no screens — even though the two are found by
+    // completely separate code and one failing says nothing about the other.
+    try {
+      const screens = await detectLcdDisplays();
+      console.log(`[HARE] ${screens.length} screen(s) detected.`);
+      for (const screen of screens) {
+        console.log(
+          `[HARE]   ${screen.name} — ${screen.resolutionWidth}x${screen.resolutionHeight}, ` +
+            `usb ${screen.vendorId.toString(16).padStart(4, "0")}:${screen.productId
+              .toString(16)
+              .padStart(4, "0")}, ` +
+            (screen.controllable ? "HARE can draw on it" : "detected only, no write path yet")
+        );
+      }
+    } catch (err) {
+      console.warn("[HARE] Couldn't check for screens:", err);
+    }
 
     const running = await detectConflicts();
     console.log(

@@ -6,6 +6,7 @@ import { globalInputHookProblem, startGlobalInputHook, stopGlobalInputHook } fro
 import { DevicePrefsStore } from "./devicePrefsStore.js";
 import { deviceFingerprint } from "./deviceIdentity.js";
 import { CompositeBackend } from "./compositeBackend.js";
+import { conflictMessage, scanBlockedBy, type DetectedConflict } from "./vendors/smbusConflicts.js";
 import type { VendorDeviceSource } from "./vendors/vendorBackend.js";
 import type { BackendState, EffectAssignment, EffectId, KLColor, KLDevice, ModeParamsPatch } from "./types.js";
 
@@ -66,6 +67,50 @@ export interface BackendManagerOptions {
  * devices, plus the real reason why, and the UI renders an honest "no
  * devices detected" state instead of ever faking one.
  */
+/**
+ * What length to start an unconfigured zone at, or nothing.
+ *
+ * The number is how many LEDs are on that channel, and every position past it
+ * simply doesn't light — which is why an owner of three daisy-chained fans on
+ * one channel saw the colour stop two-thirds of the way along the first fan
+ * and described it as "location instead of quantity". It was quantity; the
+ * quantity was just far too small.
+ *
+ * A motherboard ARGB header and a fan hub channel need opposite treatment,
+ * and one of them is not HARE's to decide:
+ *
+ *  - **A motherboard header** reports zero because the board cannot count a
+ *    strip, and every colour written to a zero-length zone vanishes. Eight is
+ *    one ARGB fan and the length most bundled strips ship at — a starting
+ *    point that makes something happen, cheap to correct.
+ *  - **A fan hub channel** reports a maximum that is the channel's *capacity*,
+ *    not its population. On a Lian Li Uni Hub that is 96 per channel, eight
+ *    channels. Starting each one there lit every fan — and made the device
+ *    768 LEDs, most of them nothing, so every effect frame was spread across
+ *    four times the real length and pushed four times the USB traffic. It was
+ *    reported as the fans looking "weird and choppy", which is exactly what
+ *    it was.
+ *
+ * So a hub channel is left alone. Nothing here can know how many fans are on
+ * a chain, and the two available guesses are wrong in opposite directions —
+ * eight looks broken, ninety-six looks broken differently. The zone stays
+ * empty, the device page shows it as needing a number, and one button there
+ * fills it to capacity for anyone who would rather have everything lit than
+ * count.
+ *
+ * The two are told apart by that maximum. A motherboard header tops out around
+ * a strip's worth; a hub channel is far larger.
+ */
+const HUB_CHANNEL_MIN_MAX = 32;
+
+export function startingLengthFor(zone: { ledsMin?: number; ledsMax?: number }): number {
+  const max = zone.ledsMax ?? 0;
+  const min = zone.ledsMin ?? 0;
+  // 0 means "don't", and restoreZoneSizes skips anything at or below zero.
+  if (max >= HUB_CHANNEL_MIN_MAX) return 0;
+  return Math.max(min, Math.min(max || DEFAULT_HEADER_LEDS, DEFAULT_HEADER_LEDS));
+}
+
 export class BackendManager {
   private backend: DeviceBackend;
   private effectRunner: EffectRunner;
@@ -159,6 +204,13 @@ export class BackendManager {
     const live = new OpenRgbBackend({
       openRgbExePath: this.opts.openRgbExePath ?? null,
       port: this.opts.openRgbPort,
+      // Starting OpenRGB is what sweeps the SMBus, and that sweep must not
+      // run while a vendor RGB app owns the bus. Joining a server that is
+      // already up is not gated -- see smbusConflicts.ts.
+      beforeSpawn: async () => {
+        const conflicts = await scanBlockedBy();
+        return conflicts.length > 0 ? conflictMessage(conflicts) : null;
+      },
     });
     try {
       await live.connect();
@@ -191,7 +243,7 @@ export class BackendManager {
     this.unsubDevices = backend.onDevicesChanged(() => {
       // Sizes first: a colour written to a zone that is still zero-length
       // goes nowhere, so the strip has to exist before it can be lit.
-      this.restoreZoneSizes();
+      void this.restoreZoneSizes();
       // Devices may have only just appeared, so this is the earliest point
       // saved lighting can be put back. shouldRestore() makes it a no-op for
       // anything already handled this session.
@@ -267,16 +319,53 @@ export class BackendManager {
     return raw instanceof OpenRgbBackend ? raw : null;
   }
 
-  async rescan(): Promise<void> {
+  /**
+   * Rescans for hardware, refusing while another RGB app holds the bus.
+   *
+   * `force` is the user overriding that refusal from the UI, which they are
+   * entitled to do — the warning is a warning, not a lock. Everything else
+   * about a rescan is unchanged.
+   */
+  async rescan(force = false): Promise<DetectedConflict[]> {
+    if (!force) {
+      const blocked = await scanBlockedBy();
+      if (blocked.length > 0) {
+        console.warn(`[HARE] Rescan refused: ${conflictMessage(blocked)}`);
+        return blocked;
+      }
+    }
     // Not even connected to OpenRGB right now (the "no devices" placeholder)
     // — a plain rescan() on it is a no-op by design, so retry the real
     // connection instead, same as a fresh start().
     if (this.backend.kind === "none") {
       await this.start();
-      return;
+      return [];
     }
     await this.backend.rescan();
+    return [];
   }
+
+  /**
+   * Resizes a header without letting a failure escape.
+   *
+   * Automatic sizing is a convenience, not something the user asked for. A
+   * controller that refuses to be resized must not produce an unhandled
+   * rejection in the main process for every zone it has.
+   */
+  private async resizeQuietly(deviceId: number, zoneId: number, size: number): Promise<void> {
+    try {
+      await this.backend.resizeZone?.(deviceId, zoneId, size);
+    } catch (err) {
+      console.warn(
+        `[HARE] Couldn't set the length of zone ${zoneId} on device ${deviceId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+  }
+
+  /** Zones already given a length this session, so automatic sizing happens once and not on every refresh. */
+  private sizedZones = new Set<string>();
 
   /** Why an effect that needs something outside HARE isn't getting it, by effect id. */
   private effectProblems: Partial<Record<EffectId, string>> = {};
@@ -335,11 +424,13 @@ export class BackendManager {
    *    strips); it is a starting point the user can change, not a guess HARE
    *    insists on.
    *
-   * Runs on every device list rather than once per session, unlike saved
-   * colours: a zone that isn't the right size yet has nowhere to put a
-   * colour, so this has to happen first and again if the device reappears.
+   * Runs on every device list, but sizes each zone at most once (see
+   * `sizedZones`): a zone that isn't the right size yet has nowhere to put a
+   * colour, so this has to happen early — but a controller whose size can't
+   * be read back would otherwise be resized on every single refresh, for
+   * ever.
    */
-  private restoreZoneSizes(): void {
+  private async restoreZoneSizes(): Promise<void> {
     if (!this.backend.resizeZone) return;
     const devices = this.backend.getDevices();
     for (const device of devices) {
@@ -348,26 +439,37 @@ export class BackendManager {
         if (!zone.resizable) continue;
         const saved = sizes?.[zone.name];
 
+        // Done once per zone per session, whatever happens.
+        //
+        // This used to fire every time the device list was refreshed, on any
+        // zone still reading zero — and on a controller whose size can't be
+        // read back, that is every zone, every time, for ever. One click
+        // produced eight resizes and eight rejections, and the next click did
+        // it again.
+        const key = `${device.id}:${zone.id}`;
+        if (this.sizedZones.has(key)) continue;
+
         if (typeof saved === "number") {
           if (saved === zone.ledCount) continue;
+          this.sizedZones.add(key);
           console.log(
             `[HARE] Restoring ${device.name} zone "${zone.name}" to the ${saved} LEDs you set previously.`
           );
-          void this.backend.resizeZone(device.id, zone.id, saved);
+          await this.resizeQuietly(device.id, zone.id, saved);
           continue;
         }
 
         // Never set, and empty: give it something rather than leaving a
         // header that silently eats every colour.
         if (zone.ledCount === 0) {
-          const size = Math.max(zone.ledsMin ?? 0, Math.min(zone.ledsMax ?? DEFAULT_HEADER_LEDS, DEFAULT_HEADER_LEDS));
+          const size = startingLengthFor(zone);
           if (size <= 0) continue;
+          this.sizedZones.add(key);
           console.log(
-            `[HARE] ${device.name} zone "${zone.name}" reports no LEDs — a board can't count what's on a ` +
-              `header, so HARE is starting it at ${size}. Change it on the device's page if your strip is a ` +
-              "different length."
+            `[HARE] ${device.name} zone "${zone.name}" reports no LEDs — nothing can count what's plugged ` +
+              `into it, so HARE is starting it at ${size}. Change it on the device's page if that's wrong.`
           );
-          void this.backend.resizeZone(device.id, zone.id, size);
+          await this.resizeQuietly(device.id, zone.id, size);
         }
       }
     }

@@ -15,7 +15,7 @@
 // nobody finds out until it's published -- so when signing was configured, the
 // finished file is checked and the build fails if it isn't actually signed.
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveSigning } from "./signing.mjs";
@@ -67,6 +67,38 @@ run("npm", ["run", "verify:bundle"]);
 // build. There is nowhere to publish to (`publish: null` in the config), so
 // saying so removes both the warning and the guesswork.
 run("npx", ["electron-builder", "--win", "--publish", "never", ...signing.args]);
+
+// --- Did the openrgb-sdk repair actually make it into the package? ---------
+//
+// The repair is applied to node_modules at build time (see
+// scripts/patch-openrgb-sdk.mjs). node_modules isn't listed in
+// electron-builder.yml's `files` -- electron-builder adds production
+// dependencies on its own -- so "the patched copy is the copy that ships" is
+// an assumption, and this is the line that turns it into a checked fact.
+//
+// Worth the seconds it costs: without the repair, every user whose hardware
+// reports a flag bit newer than openrgb-sdk 0.6.0 knows about sees zero
+// devices and an error that blames the connection. That shipped once.
+{
+  const asar = path.join(root, "release", "win-unpacked", "resources", "app.asar");
+  if (!existsSync(asar)) {
+    console.log("  Couldn't find app.asar to check -- skipping the openrgb-sdk check.");
+  } else {
+    // asar stores file contents end to end, so the marker is findable without
+    // unpacking the archive.
+    const packed = readFileSync(asar);
+    if (!packed.includes("hare-patched: tolerate unknown flag bits")) {
+      console.error("");
+      console.error("  The packaged app does NOT contain the repaired openrgb-sdk.");
+      console.error("  An installer built from this would find zero devices on any PC whose");
+      console.error("  hardware reports a flag bit the SDK doesn't know -- which is most of them.");
+      console.error("");
+      console.error("  Run `npm run build` and check scripts/patch-openrgb-sdk.mjs.");
+      process.exit(1);
+    }
+    console.log("  openrgb-sdk: the repaired copy is the one that shipped.");
+  }
+}
 
 // --- Did it actually get signed? -------------------------------------------
 const releaseDir = path.join(root, "release");

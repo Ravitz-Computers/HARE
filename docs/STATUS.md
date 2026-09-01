@@ -1,6 +1,6 @@
 # What works, what doesn't
 
-Beta 2 · `1.0.0-beta.2`
+Beta 4 · `1.0.0-beta.4`
 
 This page exists because "it's in the app" and "it works" are different claims, and a beta should be
 honest about which one it's making. Four sections: proven, unproven, degraded, absent.

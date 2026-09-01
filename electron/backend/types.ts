@@ -227,6 +227,22 @@ export interface BackendState {
 }
 
 /**
+ * What came back from asking for a rescan.
+ *
+ * `blockedBy` is empty on the normal path. When it isn't, **no scan
+ * happened**: another RGB application is holding the SMBus, and starting a
+ * scan next to it is the documented way to put a controller into an invalid
+ * state. The devices in `state` are whatever was already known.
+ *
+ * It is a list rather than a boolean because the fix is "close this program",
+ * and naming it is the entire difference between an error and an instruction.
+ */
+export interface RescanResult {
+  state: BackendState;
+  blockedBy: DetectedConflict[];
+}
+
+/**
  * Whether PawnIO — the signed kernel driver OpenRGB now uses for SMBus — is
  * present. See backend/pawnIo.ts for why HARE cares.
  */
@@ -302,6 +318,45 @@ export interface ScreenGaugeSettings {
    * chose stops reporting.
    */
   sensorId: string | null;
+  /**
+   * What the screen shows, in order, up to four.
+   *
+   * Stored as what was chosen ("CPU temperature") rather than as sensor ids,
+   * because every id is provider-specific and a saved layout naming them
+   * directly breaks the moment somebody installs or stops running a different
+   * monitoring tool. See src/lib/screenMetrics.ts.
+   *
+   * Empty or missing means the older single-reading behaviour, so a screen set
+   * up before this existed keeps working untouched.
+   */
+  metrics?: string[];
+  /**
+   * The two layers, independently switchable.
+   *
+   * A screen is a background with readings drawn over it, and either half is
+   * worth having on its own: a picture alone, numbers alone, or numbers over
+   * a picture. Modelled as two switches rather than one mode, because "show
+   * a picture" and "show my temperatures" were previously mutually exclusive
+   * and there was no reason for them to be.
+   */
+  backgroundEnabled?: boolean;
+  infographicEnabled?: boolean;
+  /**
+   * The chosen background, already cropped to the screen and stored as a data
+   * URL.
+   *
+   * Kept in settings rather than as a path, so the picture survives the
+   * original file being moved or deleted — a background that silently goes
+   * black because someone tidied their Pictures folder is a bug report.
+   */
+  background?: string | null;
+  /**
+   * What colour the readings are drawn in.
+   *
+   * Exists because the background is the user's own picture: white numbers
+   * are right on most of them and invisible on some.
+   */
+  textColor?: string;
 }
 
 /** One monitor, as something the user can pick from a list. */
@@ -794,6 +849,14 @@ export interface KLDisplayDevice {
    * offering buttons that would do nothing.
    */
   controllable: boolean;
+  /**
+   * Which write path this model has, if any — "kraken", "lianli-aio", or null.
+   *
+   * Carried on the device rather than looked up again at every call site, so
+   * "which driver drives this?" has exactly one answer, and adding a third
+   * cooler is one table entry plus one branch in createScreenDriver.
+   */
+  driver: "kraken" | "lianli-aio" | null;
 }
 
 export type ImportBackupResult =
@@ -866,6 +929,7 @@ export interface ModuleStatus {
 export const IPC = {
   GET_STATE: "hare:get-state",
   STATE_CHANGED: "hare:state-changed",
+  /** Rescans for hardware. Takes `force` to override a refusal, and answers `{ state, blockedBy }` — blockedBy names the RGB apps holding the bus when nothing was scanned. */
   RESCAN: "hare:rescan",
   SET_DEVICE_COLOR: "hare:set-device-color",
   SET_ZONE_COLOR: "hare:set-zone-color",

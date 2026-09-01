@@ -14,7 +14,7 @@ worth what the process behind it is worth.
 | Project | HARE (Hardware Adaptive RGB Engine) |
 | Publisher | Ravitz Computers |
 | Repository | <https://github.com/Ravitz-Computers/HARE> |
-| Author and approver | Avrumi Ravitz — avrumi@ravitzcomputers.com |
+| Author and approver | Avrumi Ravitz — support@ravitzcomputers.com |
 | Contributors | Pull requests are reviewed before merge; no contributor can trigger a signing request |
 
 ## The signing key
@@ -78,5 +78,5 @@ HARE collects nothing and sends nothing anywhere.
 
 If a signed HARE binary looks wrong to you — an unexpected signature, a
 checksum that doesn't match, a build you can't tie back to a commit — email
-avrumi@ravitzcomputers.com rather than opening a public issue. See
+support@ravitzcomputers.com rather than opening a public issue. See
 [`SECURITY.md`](../SECURITY.md).

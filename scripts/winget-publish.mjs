@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Publishes HARE to the Windows Package Manager.
 //
-//   npm run winget -- --version 1.0.0-beta.2
-//   npm run winget -- --version 1.0.0-beta.2 --submit
+//   npm run winget -- --version 1.0.0-beta.4
+//   npm run winget -- --version 1.0.0-beta.4 --submit
 //   npm run winget -- --dry-run
 //
 // WHAT THIS DOES
@@ -182,9 +182,9 @@ Description: |-
   can be saved, applied anywhere and shared as files. A spare monitor becomes
   a touch control panel, and a cooler's screen can show a live temperature.
 
-  Note: motherboard and memory lighting needs the PawnIO driver, which an
-  unattended install deliberately skips. Install it from Settings > Hardware
-  after the first launch -- one click, one prompt.
+  Motherboard and memory lighting needs the PawnIO driver, which the
+  installer puts on for you -- including an unattended install. Nothing to
+  do afterwards.
 Moniker: hare
 Tags:
   - rgb

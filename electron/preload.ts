@@ -3,6 +3,7 @@ import { IPC } from "./backend/types.js";
 import type { SensorSnapshot } from "./backend/sensors/sensorTypes.js";
 import type {
   BackendState,
+  RescanResult,
   EffectAssignment,
   EffectId,
   KLColor,
@@ -35,7 +36,7 @@ import type {
 const api = {
   getState: (): Promise<BackendState> => ipcRenderer.invoke(IPC.GET_STATE),
   getEffects: (): Promise<EffectDefinition[]> => ipcRenderer.invoke(IPC.GET_EFFECTS),
-  rescan: (): Promise<BackendState> => ipcRenderer.invoke(IPC.RESCAN),
+  rescan: (force?: boolean): Promise<RescanResult> => ipcRenderer.invoke(IPC.RESCAN, force === true),
   setDeviceColor: (deviceId: number, color: KLColor): Promise<void> =>
     ipcRenderer.invoke(IPC.SET_DEVICE_COLOR, deviceId, color),
   resizeZone: (deviceId: number, zoneId: number, ledCount: number): Promise<BackendState> =>
@@ -57,7 +58,7 @@ const api = {
     rainbow = false
   ): Promise<void> => ipcRenderer.invoke(IPC.SYNC_ALL, effectId, color, secondaryColor, speed, brightness, rainbow),
   getDeviceDbStatus: (): Promise<DeviceDbStatus> => ipcRenderer.invoke(IPC.GET_DEVICE_DB_STATUS),
-  discoverDevices: (): Promise<{ state: BackendState; dbStatus: DeviceDbStatus }> =>
+  discoverDevices: (): Promise<{ state: BackendState; dbStatus: DeviceDbStatus; blockedBy: DetectedConflict[] }> =>
     ipcRenderer.invoke(IPC.DISCOVER_DEVICES),
   getAppSettings: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.GET_APP_SETTINGS),
   setAppSettings: (partial: Partial<AppSettings>): Promise<AppSettings> =>
