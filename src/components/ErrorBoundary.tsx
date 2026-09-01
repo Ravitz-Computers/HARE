@@ -3,6 +3,18 @@ import { RefreshCw } from "lucide-react";
 
 interface Props {
   children: ReactNode;
+  /**
+   * Renders a small card in place of the failing part, instead of taking over
+   * the window.
+   *
+   * For a section that can fail on its own — one cooler screen's controls,
+   * say. A fault in one device's panel shouldn't cost the whole tab, which is
+   * exactly what happened: a screen whose controls threw made Widgets &
+   * Screens impossible to open at all.
+   */
+  inline?: boolean;
+  /** What failed, in the user's terms. Only used by the inline form. */
+  label?: string;
 }
 
 interface State {
@@ -32,6 +44,20 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
+
+    if (this.props.inline) {
+      return (
+        <div className="hr-card border-glow-amber/40 p-3.5">
+          <p className="text-sm font-medium">
+            {this.props.label ?? "This part"} couldn&apos;t be shown
+          </p>
+          <p className="mt-1.5 break-words text-xs text-hare-muted">{error.message}</p>
+          <p className="mt-1.5 text-[11px] text-hare-muted">
+            Everything else on this page still works.
+          </p>
+        </div>
+      );
+    }
 
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-hare-bg p-8">

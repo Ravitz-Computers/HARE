@@ -3,6 +3,7 @@ import { getHareApi } from "@/lib/hareApi";
 import { startMusicReactive, stopMusicReactive } from "@/lib/musicReactive";
 import { DEFAULT_DASHBOARD_SETTINGS } from "../../electron/backend/types";
 import { EMPTY_SNAPSHOT, type SensorSnapshot } from "../../electron/backend/sensors/sensorTypes";
+import { createClaimCounter } from "../../electron/backend/sensors/sensorClaims";
 import type {
   AppSettings,
   BackendState,
@@ -62,6 +63,14 @@ interface HareStore {
   vendorsRechecking: boolean;
   /** Other RGB apps running right now that will stop HARE seeing hardware. */
   conflicts: DetectedConflict[];
+  /**
+   * Set when a scan was **refused** because one of those apps holds the bus.
+   *
+   * Distinct from `conflicts`, which is only ever a hint: this one means the
+   * user asked for a scan and did not get one. Cleared by a successful scan
+   * or by overriding with rescan(true).
+   */
+  scanBlockedBy: DetectedConflict[];
   refreshConflicts: () => Promise<void>;
   /** Optional vendor modules and what each one costs to add. */
   modules: ModuleStatus[];
@@ -122,7 +131,7 @@ interface HareStore {
   setAppSettings: (partial: Partial<AppSettings>) => Promise<void>;
   completeOnboarding: () => void;
   selectDevice: (id: number | null) => void;
-  rescan: () => Promise<void>;
+  rescan: (force?: boolean) => Promise<void>;
   discover: () => Promise<void>;
   setDeviceColor: (deviceId: number, color: KLColor) => Promise<void>;
   setZoneColor: (deviceId: number, zoneId: number, color: KLColor) => Promise<void>;
@@ -194,6 +203,16 @@ export interface Toast {
 let nextToastId = 1;
 
 /**
+ * How many things in this window currently want sensor readings, so the main
+ * process only hears about the first claim and the last release. See
+ * backend/sensors/sensorClaims.ts for what goes wrong without it.
+ *
+ * Outside the store because it is not state anything renders from, and a
+ * re-render must never reset it.
+ */
+const sensorClaims = createClaimCounter();
+
+/**
  * Turns whatever a rejected promise carried into one readable sentence.
  * Errors from the backend arrive across the IPC bridge, which prefixes them
  * with its own channel name; that prefix means nothing to anyone reading it.
@@ -221,6 +240,7 @@ export const useHareStore = create<HareStore>((set) => ({
   modules: [],
   moduleBusy: null,
   conflicts: [],
+  scanBlockedBy: [],
   monitors: [],
   effectFlourish: 0,
   toasts: [],
@@ -304,6 +324,9 @@ export const useHareStore = create<HareStore>((set) => ({
 
   watchSensors: async (watching) => {
     const api = await getHareApi();
+    // Only the edges are worth telling the main process about — see the note
+    // on `sensorClaims` above for why the count has to live here.
+    if (!sensorClaims.change(watching)) return;
     await api.watchSensors(watching);
     if (watching) set({ sensors: await api.getSensors() });
   },
@@ -425,20 +448,21 @@ export const useHareStore = create<HareStore>((set) => ({
 
   selectDevice: (id) => set({ selectedDeviceId: id }),
 
-  rescan: async () => {
+  rescan: async (force = false) => {
     const api = await getHareApi();
-    const state = await api.rescan();
+    const { state, blockedBy } = await api.rescan(force);
     // A rescan is precisely the moment a bus conflict matters — the user is
-    // asking why something isn't showing up.
-    set({ state, conflicts: await api.getConflicts() });
+    // asking why something isn't showing up. `blockedBy` is stronger than
+    // that hint: it means no scan ran at all.
+    set({ state, scanBlockedBy: blockedBy, conflicts: await api.getConflicts() });
   },
 
   discover: async () => {
     set({ discovering: true });
     try {
       const api = await getHareApi();
-      const { state, dbStatus } = await api.discoverDevices();
-      set({ state, dbStatus });
+      const { state, dbStatus, blockedBy } = await api.discoverDevices();
+      set({ state, dbStatus, scanBlockedBy: blockedBy ?? [] });
     } finally {
       set({ discovering: false });
     }

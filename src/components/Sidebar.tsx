@@ -9,7 +9,7 @@ const NAV: { id: Page; label: string; icon: typeof LayoutGrid }[] = [
   { id: "dashboard", label: "My Devices", icon: LayoutGrid },
   { id: "effects", label: "Effects", icon: Sparkles },
   { id: "gallery", label: "Gallery", icon: Images },
-  { id: "widgets", label: "Widget Engine", icon: MonitorSmartphone },
+  { id: "widgets", label: "Widgets & Screens", icon: MonitorSmartphone },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 

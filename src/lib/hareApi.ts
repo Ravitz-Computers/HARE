@@ -2,6 +2,7 @@ import { EFFECTS } from "../../electron/backend/types";
 import { MODULE_DEFINITIONS } from "../../electron/backend/modules/moduleRegistry";
 import type {
   BackendState,
+  RescanResult,
   EffectAssignment,
   EffectId,
   KLColor,
@@ -31,7 +32,8 @@ import { BrowserBackend } from "./browserBackend";
 export interface HareApi {
   getState(): Promise<BackendState>;
   getEffects(): Promise<EffectDefinition[]>;
-  rescan(): Promise<BackendState>;
+  /** Rescans for hardware. `force` overrides a refusal; `blockedBy` is non-empty when nothing was scanned because another RGB app holds the bus. */
+  rescan(force?: boolean): Promise<RescanResult>;
   setDeviceColor(deviceId: number, color: KLColor): Promise<void>;
   setZoneColor(deviceId: number, zoneId: number, color: KLColor): Promise<void>;
   /** Tells the board how many LEDs are on an ARGB header, so colours have somewhere to land. */
@@ -48,7 +50,7 @@ export interface HareApi {
     rainbow?: boolean
   ): Promise<void>;
   getDeviceDbStatus(): Promise<DeviceDbStatus>;
-  discoverDevices(): Promise<{ state: BackendState; dbStatus: DeviceDbStatus }>;
+  discoverDevices(): Promise<{ state: BackendState; dbStatus: DeviceDbStatus; blockedBy: DetectedConflict[] }>;
   getAppSettings(): Promise<AppSettings>;
   setAppSettings(partial: Partial<AppSettings>): Promise<AppSettings>;
   getThemeState(): Promise<ThemeState>;

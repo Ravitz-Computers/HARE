@@ -117,7 +117,7 @@ export function DashboardScreen() {
           {locked ? (
             <span
               className="flex items-center gap-2 rounded-2xl border border-hare-border px-4 py-3 text-sm text-hare-muted"
-              title="Unlock this from HARE, under Widget Engine"
+              title="Unlock this from HARE, under Widgets &amp; Screens"
             >
               <Lock size={16} />
               Locked
@@ -151,7 +151,7 @@ export function DashboardScreen() {
 
       {placements.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-hare-muted">
-          <p className="text-lg">Add widgets from the Widget Engine tab in HARE.</p>
+          <p className="text-lg">Add widgets from the Widgets &amp; Screens tab in HARE.</p>
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">

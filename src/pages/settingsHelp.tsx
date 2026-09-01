@@ -14,6 +14,7 @@ import {
   COMPANY,
   OPENRGB_SOURCE_URL,
   PROJECT_URL,
+  RISK_NOTICE,
   releaseName,
 } from "@/lib/appInfo";
 import { BugReport } from "@/components/BugReport";
@@ -107,7 +108,7 @@ const HELP_TOPICS: HelpTopic[] = [
     question: "Can I put HARE on a second monitor?",
     answer: (
       <>
-        Yes. Open <b>Widget Engine</b> in the sidebar and pick a monitor. HARE fills it with a touch
+        Yes. Open <b>Widgets &amp; Screens</b> in the sidebar and pick a monitor. HARE fills it with a touch
         panel showing the time, what each device is doing, and one-tap controls. The same page is
         where you choose which widgets appear and drag them where you want them.
       </>
@@ -329,6 +330,9 @@ export function AboutPanel() {
         <p className="text-xs text-hare-muted mb-4">
           HARE is open source under the MIT license, and is built on other open-source software.
         </p>
+        {/* The same sentence shown on first run. Repeated rather than linked,
+            so somebody looking for it later finds the words, not a pointer. */}
+        <p className="text-xs text-hare-muted mb-4 leading-relaxed">{RISK_NOTICE}</p>
         <div className="space-y-2">
           <LegalText label="HARE license (MIT)" text={licenseText} />
           <LegalText label="Third-party notices" text={thirdPartyNotices} />

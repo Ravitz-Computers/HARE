@@ -9,7 +9,7 @@ import type { EffectId, KLColor } from "../../electron/backend/types";
 import { Vinny } from "../components/Vinny";
 
 export function Dashboard({ onOpenDevice }: { onOpenDevice: (id: number) => void }) {
-  const { state, effects, dbStatus, conflicts, discovering, rescan, discover, syncAll, setDeviceColor, notify, run } =
+  const { state, effects, dbStatus, conflicts, scanBlockedBy, discovering, rescan, discover, syncAll, setDeviceColor, notify, run } =
     useHareStore();
   const [syncColor, setSyncColor] = useState<KLColor>({ r: 255, g: 46, b: 122 });
   const [syncRainbow, setSyncRainbow] = useState(false);
@@ -103,7 +103,34 @@ export function Dashboard({ onOpenDevice }: { onOpenDevice: (id: number) => void
         </div>
       </div>
 
-      {conflicts.length > 0 && (
+      {/* A refused scan, not a hint. Shown instead of the banner below,
+          because saying "some devices may not appear" under a message that
+          says nothing was scanned reads as two different problems. */}
+      {scanBlockedBy.length > 0 && (
+        <div className="hr-card p-4 mb-6 border-glow-amber/40">
+          <p className="text-sm font-medium flex items-center gap-1.5">
+            <AlertTriangle size={15} className="text-glow-amber shrink-0" />
+            Didn't scan
+          </p>
+          <p className="text-xs text-hare-muted mt-1.5 leading-relaxed">
+            {scanBlockedBy.length === 1
+              ? `${scanBlockedBy[0].name} is running and controls ${scanBlockedBy[0].affects}.`
+              : `${scanBlockedBy.map((c) => c.name).join(", ")} are running.`}{" "}
+            Close {scanBlockedBy.length === 1 ? "it" : "them"} and scan again.
+          </p>
+          <button
+            type="button"
+            className="hr-btn-sm mt-3"
+            onClick={() => {
+              void rescan(true);
+            }}
+          >
+            Scan anyway
+          </button>
+        </div>
+      )}
+
+      {scanBlockedBy.length === 0 && conflicts.length > 0 && (
         <div className="hr-card p-4 mb-6 border-glow-amber/40">
           <p className="text-sm font-medium flex items-center gap-1.5">
             <AlertTriangle size={15} className="text-glow-amber shrink-0" />

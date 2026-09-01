@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Wifi, SearchX } from "lucide-react";
 import { Vinny } from "../components/Vinny";
+import { RISK_NOTICE } from "@/lib/appInfo";
 import { HardwareAccessStep } from "../components/HardwareAccessStep";
 import { EffectPreviewSwatch } from "../components/EffectPreviewSwatch";
 import type { BackendState } from "../../electron/backend/types";
@@ -118,6 +119,14 @@ export function Onboarding({
             {state.message ?? "Plug in your RGB gear and hit Rescan any time."}
           </p>
         )}
+
+        {/* Said once, where it will actually be read: directly under the
+            button that starts using the app. Small and grey rather than a
+            modal with a checkbox -- a wall someone has to click through gets
+            dismissed unread, which is worse than not saying it. */}
+        <p className="text-[11px] text-hare-muted/60 mt-4 leading-relaxed">
+          {RISK_NOTICE}
+        </p>
         </>
         )}
       </motion.div>

@@ -16,7 +16,7 @@ export { APP_VERSION } from "../../electron/backend/generated/buildStamp";
 /**
  * What that version is called out loud.
  *
- * `1.0.0-beta.2` is what the packaging tools need; "Beta 2" is what it is.
+ * `1.0.0-beta.4` is what the packaging tools need; "Beta 4" is what it is.
  * Derived rather than written twice, so bumping package.json is the only
  * thing anyone has to do.
  */
@@ -32,8 +32,22 @@ export function releaseName(version: string): string {
 export const COMPANY = {
   name: "Ravitz Computers",
   website: "https://ravitzcomputers.com",
-  email: "avrumi@ravitzcomputers.com",
+  email: "support@ravitzcomputers.com",
 } as const;
+
+/**
+ * What every copy of HARE says before it is used for the first time.
+ *
+ * Kept here as one string so the first-run screen and Settings > About can
+ * never drift into saying two different things, and so a test can assert it
+ * is actually shown rather than quietly dropped in a redesign.
+ *
+ * The MIT licence in LICENSE is the operative disclaimer; this is the plain
+ * sentence a person will actually read, in the two places they will see it.
+ */
+export const RISK_NOTICE =
+  "HARE talks to your hardware directly. It's provided as-is, with no warranty — " +
+  "Ravitz Computers isn't responsible for any damage to your devices.";
 
 /** Where HARE itself lives. */
 export const PROJECT_URL = "https://github.com/Ravitz-Computers/HARE";

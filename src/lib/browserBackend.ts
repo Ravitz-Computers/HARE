@@ -4,6 +4,7 @@ import { isSavedLook, DEFAULT_DASHBOARD_SETTINGS } from "../../electron/backend/
 import { VENDOR_DEFINITIONS } from "../../electron/backend/vendors/vendorDefinitions";
 import type {
   BackendState,
+  DetectedConflict,
   EffectAssignment,
   EffectId,
   KLColor,
@@ -174,9 +175,12 @@ export class BrowserBackend {
     };
   }
 
+  // No bus and no vendor software in the browser fixture, so nothing can
+  // ever block a scan here. Returned all the same, so the shape is identical
+  // to the real one and the UI has no second code path to get wrong.
   async rescan() {
     await this.backend.rescan();
-    return this.getState();
+    return { state: this.getState(), blockedBy: [] };
   }
 
   async setDeviceColor(deviceId: number, color: KLColor) {
@@ -277,14 +281,16 @@ export class BrowserBackend {
     return { ...this.dbStatus };
   }
 
-  async discoverDevices(): Promise<{ state: BackendState; dbStatus: DeviceDbStatus }> {
+  async discoverDevices(): Promise<{ state: BackendState; dbStatus: DeviceDbStatus; blockedBy: DetectedConflict[] }> {
     this.patchDb({ checking: true });
     // A brief simulated delay so the "Discover" UI has something to show —
     // in the real app this is an actual Codeberg API round-trip.
     await new Promise((r) => setTimeout(r, 600));
     this.patchDb({ checking: false, lastCheckedAt: new Date().toISOString() });
     await this.rescan();
-    return { state: this.getState(), dbStatus: this.getDeviceDbStatus() };
+    // Nothing holds a bus in the browser fixture, so a scan here is never
+    // refused -- but the shape matches the real one so the UI has one path.
+    return { state: this.getState(), dbStatus: this.getDeviceDbStatus(), blockedBy: [] };
   }
 
   onStateChanged(cb: (state: BackendState) => void) {

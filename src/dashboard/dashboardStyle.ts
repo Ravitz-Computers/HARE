@@ -5,7 +5,7 @@ import type { DashboardBackground, DashboardWidgetPlacement } from "../../electr
  * How the second screen's background and each widget's accent become CSS.
  *
  * Kept apart from the components so the live screen and the editable preview
- * in Widget Engine can be drawn by the same code — the preview used to be
+ * in Widgets & Screens can be drawn by the same code — the preview used to be
  * grey placeholder boxes, which meant every choice made there was a guess.
  */
 

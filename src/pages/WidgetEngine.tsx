@@ -4,6 +4,7 @@ import { useHareStore } from "@/state/store";
 import { WidgetCanvas } from "../components/WidgetCanvas";
 import { BackgroundPicker } from "../components/BackgroundPicker";
 import { ScreenControls } from "../components/ScreenControls";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import {
   DASHBOARD_WIDGETS,
   type DashboardBackground,
@@ -11,7 +12,7 @@ import {
 } from "../../electron/backend/types";
 
 /**
- * The Widget Engine: everything HARE can draw on that isn't a light.
+ * Widgets & Screens: everything HARE can draw on that isn't a light.
  *
  * A spare monitor becomes a touch panel showing your lighting, the time, and
  * whatever else you put on it; an AIO cooler's screen takes an image or a GIF.
@@ -101,7 +102,7 @@ export function WidgetEngine() {
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="font-display text-2xl font-semibold">Widget Engine</h1>
+        <h1 className="font-display text-2xl font-semibold">Widgets &amp; Screens</h1>
         <p className="text-hare-muted text-sm mt-1">
           Turn a spare monitor into a control panel, and put images on your cooler's screen.
         </p>
@@ -308,8 +309,20 @@ export function WidgetEngine() {
             </p>
           ) : (
             <div className="space-y-4">
+              {/*
+                Each screen's controls are boxed in on their own. One screen
+                whose panel throws used to make this whole tab impossible to
+                open, which is a bad trade for a feature that is optional to
+                begin with.
+              */}
               {displayDevices.map((screen) => (
-                <ScreenControls key={`${screen.vendorId}:${screen.productId}`} screen={screen} />
+                <ErrorBoundary
+                  key={`${screen.vendorId}:${screen.productId}`}
+                  inline
+                  label={screen.name}
+                >
+                  <ScreenControls screen={screen} />
+                </ErrorBoundary>
               ))}
             </div>
           )}
