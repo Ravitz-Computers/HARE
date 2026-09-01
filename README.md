@@ -6,7 +6,7 @@ Keyboard, mouse, motherboard, memory, fans, cooler, strips: one place to control
 four vendor apps that each want to own your machine. Built by
 [Ravitz Computers](https://ravitzcomputers.com).
 
-> **Beta 3.** HARE runs on real hardware and does what this page says it does. It is also new, and
+> **Beta 4.** HARE runs on real hardware and does what this page says it does. It is also new, and
 > [`docs/STATUS.md`](docs/STATUS.md) says plainly which parts have been proven on real hardware, which
 > have not, and what isn't built yet. Read it before deciding what to trust.
 
