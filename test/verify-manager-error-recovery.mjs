@@ -43,7 +43,13 @@ await manager.start();
 
 const before = manager.getState();
 assert(before.status === "connected", `manager starts connected with real devices present, got status "${before.status}"`);
-assert(before.devices.length === DEVICES.length, `manager reports all ${DEVICES.length} simulated devices`);
+// One simulated device can only be read at an older protocol. The manager
+// should end up with all of them, because the backend falls back rather than
+// settling for the devices the newest protocol happened to manage.
+assert(
+  before.devices.length === DEVICES.length,
+  `manager reports all ${DEVICES.length} simulated devices (got ${before.devices.length})`
+);
 
 console.log("\nForcing a real TCP RST from the server side (simulates OpenRGB crashing/closing)...");
 assert(acceptedSocket !== null, "server accepted a connection to reset");

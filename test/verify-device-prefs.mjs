@@ -277,11 +277,31 @@ console.log("Per-device preference persistence...\n");
 
   check(
     "an empty resizable zone is given a starting length",
-    /zone\.ledCount === 0[\s\S]{0,600}resizeZone\(/.test(src)
+    /zone\.ledCount === 0[\s\S]{0,900}resizeQuietly\(/.test(src)
+  );
+  // A convenience nobody asked for must not be able to crash the main
+  // process, and must not repeat itself on every device refresh — both of
+  // which it did, eight times per click, on a controller that can't be read
+  // back after a resize.
+  check(
+    "...quietly, so a controller that refuses can't throw into the void",
+    /private async resizeQuietly/.test(src) && !/void this\.backend\.resizeZone/.test(src)
   );
   check(
-    "...of 8, matching what the device page offers",
+    "...and once per zone, not on every refresh",
+    /this\.sizedZones\.has\(key\)/.test(src) && /this\.sizedZones\.add\(key\)/.test(src)
+  );
+  check(
+    "...of 8 for a motherboard header, matching what the device page offers",
     src.includes("const DEFAULT_HEADER_LEDS = 8")
+  );
+  // A fan hub's channel is the same kind of zone with a different answer: it
+  // drives a chain of fans, and eight lights a third of the first one. That
+  // read as "the number is a position, not a quantity" to the person it
+  // happened to, which is the worst way to learn a setting.
+  check(
+    "...but a fan channel starts at what the channel can drive, not at 8",
+    /startingLengthFor\(zone\)/.test(src) && /HUB_CHANNEL_MIN_MAX/.test(src)
   );
   check(
     "a length the user set always wins over that default",
@@ -295,7 +315,16 @@ console.log("Per-device preference persistence...\n");
     "a zone that isn't resizable is left alone",
     /if \(!zone\.resizable\) continue;/.test(src)
   );
-  check("the choice is explained in the log, not made silently", src.includes("can't count what's on a"));
+  // The log has to name the number, or someone reading it back cannot tell a
+  // zone HARE sized from one the hardware reported.
+  check(
+    "the choice is explained in the log, not made silently",
+    /reports no LEDs[\s\S]{0,200}starting it at \$\{size\}/.test(src)
+  );
+  check(
+    "...and says where to change it",
+    /Change it on the device's page/.test(src)
+  );
 }
 
 console.log("");

@@ -35,7 +35,7 @@ console.log("Release hygiene...\n");
 
 // --- Who made it, and where it lives ---------------------------------------
 const REPO = "https://github.com/Ravitz-Computers/HARE";
-const EMAIL = "avrumi@ravitzcomputers.com";
+const EMAIL = "support@ravitzcomputers.com";
 const SITE = "https://ravitzcomputers.com";
 
 {
@@ -49,6 +49,29 @@ const SITE = "https://ravitzcomputers.com";
     "it can't be published to npm by accident",
     pkg.private === true
   );
+
+  // --- Said once, before anything is driven -------------------------------
+  // HARE writes to hardware people paid for. Whatever the licence says, the
+  // person in front of it should have been told in a sentence before the
+  // first device is touched -- and it has to survive a redesign of the
+  // welcome screen, which is exactly the kind of change that quietly drops a
+  // grey line nobody is looking at.
+  {
+    const notice = read("src/lib/appInfo.ts");
+    check("there is one risk notice, written once", /export const RISK_NOTICE/.test(notice));
+    check(
+      "...saying it comes with no warranty",
+      /no warranty/i.test(notice) && /isn't responsible/i.test(notice)
+    );
+    check(
+      "...shown on the first-run screen",
+      read("src/pages/Onboarding.tsx").includes("RISK_NOTICE")
+    );
+    check(
+      "...and findable again in Settings > About",
+      read("src/pages/settingsHelp.tsx").includes("RISK_NOTICE")
+    );
+  }
 
   const appInfo = read("src/lib/appInfo.ts");
   check("the app shows the same details", appInfo.includes(EMAIL) && appInfo.includes(SITE));

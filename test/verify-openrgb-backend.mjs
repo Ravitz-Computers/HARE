@@ -22,7 +22,23 @@ const backend = new OpenRgbBackend({ host: "127.0.0.1", port: PORT, connectTimeo
 await backend.connect();
 const devices = backend.getDevices();
 console.log(`Connected. Devices reported: ${devices.length}\n`);
-assert(devices.length === DEVICES.length, `expected ${DEVICES.length} simulated devices`);
+// One fixture device is unreadable at protocol 4 and 5 and fine at 3 (see
+// `segmentLie` in fake-openrgb-server.mjs) — the shape of a real Lian Li fan
+// controller that openrgb-sdk walked off the end of. HARE is expected to
+// notice it lost a device, try older protocols, and keep the one that reads
+// the most. So *every* device should arrive, by way of the fallback.
+assert(
+  devices.length === DEVICES.length,
+  `all ${DEVICES.length} devices arrive, via the protocol fallback (got ${devices.length})`
+);
+assert(
+  devices.some((d) => d.name === "Malformed Controller"),
+  "...including the one the newest protocol couldn't read"
+);
+assert(
+  backend.getUnreadableDevices().length === 0,
+  "...and nothing is left unreadable once it settles"
+);
 
 const byName = Object.fromEntries(devices.map((d) => [d.name, d]));
 

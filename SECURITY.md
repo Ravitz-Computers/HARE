@@ -5,7 +5,7 @@ installation, and runs a background process that talks to your hardware. If
 you find something that could be abused, please tell us before telling
 everyone.
 
-**Email:** avrumi@ravitzcomputers.com
+**Email:** support@ravitzcomputers.com
 **Subject:** `[HARE-SECURITY]`
 
 Please include what you found, how to reproduce it, and which version of HARE

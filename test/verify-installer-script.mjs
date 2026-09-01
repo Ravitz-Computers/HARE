@@ -170,29 +170,54 @@ const code = source
     "an install that's already there is left alone",
     /Call CheckPawnIO[\s\S]{0,200}StrCmp \$PawnIOPresent "yes" pawnio_done/.test(code)
   );
-  // Scoped to the driver's own branch. The runtime installer below *does*
-  // take a documented `/quiet`, so scanning the whole file for the word would
-  // now report the wrong thing — and a check that reports the wrong thing is
-  // how a real one gets deleted.
+  // The driver's own branch, scoped so the runtime installer's documented
+  // `/quiet` below can't be mistaken for a guess made here.
   const pawnioSection = code.slice(
-    code.indexOf("pawnio_visible:"),
-    code.indexOf("pawnio_done:") >= 0 ? code.lastIndexOf("pawnio_done:") : undefined
+    code.indexOf('StrCpy $1 "$INSTDIR\\resources\\pawnio'),
+    code.lastIndexOf("pawnio_done:") >= 0 ? code.lastIndexOf("pawnio_done:") : undefined
+  );
+
+  // The switch is `-install -silent`, dash-style, declared by PawnIO's
+  // publisher in its own winget manifest in microsoft/winget-pkgs. An earlier
+  // version guessed at slash-style switches, hit an error dialog nobody could
+  // see, and hung setup — so the rule is unchanged (never guess), only the
+  // fact changed (a documented switch does exist).
+  check(
+    "the driver is installed with the publisher's documented silent switch",
+    pawnioSection.includes(`ExecWait '"$1" -install -silent'`)
   );
   check(
-    "no silent switch is guessed for the driver — unrecognised flags made it show a dialog and hang setup",
+    "...and no slash-style switch, which is what hung setup when it was guessed",
     pawnioSection.length > 0 && !/\/quiet|\/VERYSILENT|\/S'/.test(pawnioSection)
   );
+  // Two failures this project has already shipped: a wizard sitting on top of
+  // the finish page that people read as a stall, and an unattended install
+  // silently skipping the driver so motherboard lighting never worked.
   check(
-    "...so an unattended install skips the driver rather than risking that dialog with nobody there",
-    /IfSilent 0 pawnio_visible[\s\S]{0,300}Goto pawnio_done/.test(code)
+    "an unattended install gets the driver too, rather than skipping it",
+    !/IfSilent[^\n]*\n\s*DetailPrint "Silent install: skipping the PawnIO driver/.test(code)
   );
   check(
-    "...and says where to get it afterwards, rather than leaving lighting quietly half-working",
-    /Silent install: skipping the PawnIO driver[^"]*Settings > Hardware/.test(code)
+    "...and nothing is left on screen on an ordinary install either",
+    !/^\s*Exec '"\$1"'\s*$/m.test(pawnioSection.split("Silent install didn't take")[0])
+  );
+  // An exit code of zero from an installer that installed nothing is exactly
+  // how MSI Mystic Light reported success for a completely dead write path.
+  check(
+    "whether it worked is checked against the service, not the exit code",
+    /ExecWait '"\$1" -install -silent'[\s\S]{0,400}Call CheckPawnIO[\s\S]{0,200}StrCmp \$PawnIOPresent "yes" pawnio_installed/.test(code)
   );
   check(
-    "...and it is launched without waiting, so it can never block the install",
-    /Exec '"\$1"'/.test(code) && !/nsExec::ExecToLog '"\$1"/.test(code)
+    "...and a silent install that didn't take falls back to the visible installer",
+    /Silent install didn't take[\s\S]{0,200}Exec '"\$1"'/.test(code)
+  );
+  check(
+    "...which an unattended install can't use, so it says where to get it instead",
+    /PawnIO didn't install[^"]*Settings > Hardware/.test(code)
+  );
+  check(
+    "the driver is only recorded as ours once it is actually installed",
+    /pawnio_installed:[\s\S]{0,400}WriteRegDWORD HKLM "Software\\HARE" "PawnIOInstalledByHare" 1/.test(code)
   );
   check(
     "the 25 MB runtime installer isn't left in Program Files forever",
@@ -286,6 +311,39 @@ const code = source
     "its digest is pinned at build time like everything else HARE ships",
     existsSync("scripts/redist-manifest.mjs") &&
       JSON.parse(readFileSync("package.json", "utf8")).scripts["build:electron"].includes("redist:manifest")
+  );
+}
+
+// --- The log people can open if they want to ------------------------------
+// electron-builder's template sets `ShowInstDetails nevershow`, which removes
+// the log and the button that opens it. Every DetailPrint in this script then
+// writes somewhere nobody can look, while setup silently installs two other
+// people's programs behind a bare progress bar.
+{
+  check(
+    "the install log can be opened by anyone who wants it",
+    /^\s*ShowInstDetails hide\s*$/m.test(code)
+  );
+  check(
+    "...and never left at nevershow, which hides the button too",
+    !/ShowInstDetails nevershow/.test(code)
+  );
+  check(
+    "...on the uninstaller as well",
+    /ShowUninstDetails hide/.test(code)
+  );
+  // ShowUninstDetails is only valid while the uninstaller is being compiled.
+  // Unguarded, it breaks the installer pass -- the same warnings-as-errors
+  // trap that cost this project three releases.
+  check(
+    "...guarded to the uninstaller pass, since it isn't valid in the other one",
+    /!ifdef BUILD_UNINSTALLER\s*[\r\n]+\s*ShowUninstDetails hide/.test(code)
+  );
+  // With the log visible, every DetailPrint is user-facing text.
+  check(
+    "the log says what is being installed, in words",
+    code.includes("Installing the PawnIO driver") &&
+      code.includes("Installing the Microsoft Visual C++ runtime")
   );
 }
 

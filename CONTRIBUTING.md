@@ -17,7 +17,7 @@ Whatever route you take, the two things that make a report answerable are:
    OpenRGB's own window. If it can't change your lighting either, the problem
    is underneath HARE, which is a completely different fix.
 
-Security problems go to avrumi@ravitzcomputers.com instead — see
+Security problems go to support@ravitzcomputers.com instead — see
 [SECURITY.md](SECURITY.md).
 
 ## Building it

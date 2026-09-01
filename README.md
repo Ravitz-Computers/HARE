@@ -6,7 +6,7 @@ Keyboard, mouse, motherboard, memory, fans, cooler, strips: one place to control
 four vendor apps that each want to own your machine. Built by
 [Ravitz Computers](https://ravitzcomputers.com).
 
-> **Beta 2.** HARE runs on real hardware and does what this page says it does. It is also new, and
+> **Beta 3.** HARE runs on real hardware and does what this page says it does. It is also new, and
 > [`docs/STATUS.md`](docs/STATUS.md) says plainly which parts have been proven on real hardware, which
 > have not, and what isn't built yet. Read it before deciding what to trust.
 
@@ -14,7 +14,7 @@ four vendor apps that each want to own your machine. Built by
 
 ## Install
 
-Download **`HARE-Setup-1.0.0-beta.2.exe`** from the
+Download **`HARE-Setup-1.0.0-beta.4.exe`** from the
 [latest release](https://github.com/Ravitz-Computers/HARE/releases) and run it.
 
 That's the whole thing. One file. It contains HARE, [OpenRGB](https://openrgb.org/), the Microsoft Visual
@@ -196,7 +196,7 @@ Two things make a report answerable:
 2. **What OpenRGB does.** Settings → Hardware → "Lighting Not Changing?" opens OpenRGB's own window. If it
    can't change your lighting either, the problem is underneath HARE — a completely different fix.
 
-Security problems go to avrumi@ravitzcomputers.com — see [SECURITY.md](SECURITY.md).
+Security problems go to support@ravitzcomputers.com — see [SECURITY.md](SECURITY.md).
 
 ---
 

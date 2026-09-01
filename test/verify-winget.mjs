@@ -85,12 +85,15 @@ const code = source
       nsh.includes("/install /quiet /norestart")
   );
   check(
-    "...and skips the driver, which has no silent switch that could be trusted",
-    /IfSilent 0 pawnio_visible[\s\S]{0,300}Goto pawnio_done/.test(nsh)
+    "...and installs the driver silently too, with its publisher's own switch",
+    nsh.includes(`ExecWait '"$1" -install -silent'`)
   );
+  // The description is what someone reads before typing `winget install`. It
+  // said for two versions that the driver was skipped and had to be installed
+  // by hand; leaving that in after fixing it is its own kind of wrong.
   check(
-    "...and the package description warns that it was skipped",
-    /PawnIO driver[\s\S]{0,200}Settings > Hardware/.test(source)
+    "...and the package description doesn't still say the driver is skipped",
+    !/deliberately skips|unattended install .{0,40}skips/.test(source)
   );
 }
 

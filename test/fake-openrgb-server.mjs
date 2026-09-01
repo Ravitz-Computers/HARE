@@ -41,6 +41,12 @@ const FLAG = {
   brightness: 1 << 4,
   perLedColor: 1 << 5,
   modeSpecificColor: 1 << 6,
+  // Bit 10, "mode always applies to the entire device". Newer than
+  // openrgb-sdk's table, which stops at bit 9 -- and one bit past the end of
+  // that table was enough to throw "Invalid array length" and lose every
+  // device on the PC. Set on a real mode below so the parse path is actually
+  // exercised, not just described.
+  wholeDeviceOnly: 1 << 10,
 };
 
 function encodeMode(mode) {
@@ -62,7 +68,7 @@ function encodeMode(mode) {
   return Buffer.concat(parts);
 }
 
-function encodeZone(zone) {
+function encodeZone(zone, version = PROTOCOL_VERSION) {
   const parts = [];
   parts.push(str(zone.name));
   parts.push(u32(zone.type ?? 0));
@@ -84,15 +90,47 @@ function encodeZone(zone) {
         parts.push(u32(v === undefined ? 0xffffffff : v));
       }
     }
+  } else if (zone.matrixLie) {
+    // A zone whose declared matrix length and declared dimensions disagree.
+    //
+    // `matrix_len` says 8 bytes -- height and width, no keys -- while height
+    // and width say 10x10, which implies 400 more. openrgb-sdk ignores the
+    // length and reads the 400 bytes that were never sent, which is how one
+    // fan controller took an entire device list with it. A parser that trusts
+    // the length prefix steps over the block and carries on.
+    //
+    // This direction (dimensions larger than the declared length) is the one
+    // the real overshoot matched: about 408 bytes, which is a 100-key matrix.
+    parts.push(u16(8));
+    parts.push(u32(10));
+    parts.push(u32(10));
   } else {
     parts.push(u16(0));
   }
-  parts.push(u16(0)); // segment count (protocol v4+) — none needed here
-  parts.push(u32(0)); // zone flags (protocol v5+)
+  if (version >= 4) {
+    // Segment count. `segmentLie` declares segments that aren't there, which
+    // walks the parser off the end exactly the way a real device did — and,
+    // crucially, only at v4 and above. Ask for v3 and this device parses
+    // fine, which is what makes "fall back to an older protocol" testable
+    // rather than merely written down.
+    parts.push(u16(zone.segmentLie ? 200 : 0));
+  }
+  // Zone flags (protocol v5+). NOT zero, on purpose.
+  //
+  // OpenRGB defines zone-flag bits up to 24; openrgb-sdk knows exactly one
+  // (bit 0). A zone whose size is manually configurable sets bit 1, which is
+  // every resizable ARGB header and fan hub in existence — and that single
+  // unknown bit made the SDK throw "Invalid array length" while parsing,
+  // which surfaced in HARE as "couldn't reach an OpenRGB server" and zero
+  // devices on a machine where OpenRGB's own window showed everything.
+  //
+  // A fixture that sends 0 here can never see that. See
+  // scripts/patch-openrgb-sdk.mjs.
+  if (version >= 5) parts.push(u32(zone.zoneFlags ?? 0x02));
   return Buffer.concat(parts);
 }
 
-function buildControllerData(spec) {
+export function buildControllerData(spec, version = PROTOCOL_VERSION) {
   const parts = [];
   parts.push(u32(0)); // leading size field the client skips (offset starts at 4)
   parts.push(u32(spec.type));
@@ -110,7 +148,7 @@ function buildControllerData(spec) {
   parts.push(u16(spec.zones.length));
   let totalLeds = 0;
   for (const zone of spec.zones) {
-    parts.push(encodeZone(zone));
+    parts.push(encodeZone(zone, version));
     totalLeds += zone.ledsCount;
   }
 
@@ -124,8 +162,11 @@ function buildControllerData(spec) {
   const [r, g, b] = spec.color ?? [40, 40, 40];
   for (let i = 0; i < totalLeds; i++) parts.push(Buffer.from([r, g, b, 0]));
 
-  parts.push(u16(0)); // alternate LED names (protocol v5+) — none
-  parts.push(u32(0)); // device flags (protocol v5+)
+  if (version >= 5) parts.push(u16(0)); // alternate LED names (protocol v5+) — none
+  // Device flags (protocol v5+), likewise not zero: OpenRGB defines bits up
+  // to 25 and the SDK knows up to 8. Bit 16 is "device name is manually
+  // configurable", which real controllers set.
+  if (version >= 5) parts.push(u32(spec.deviceFlags ?? (1 << 16) | 0x1));
 
   return Buffer.concat(parts);
 }
@@ -168,7 +209,9 @@ export const DEVICES = [
       { name: "Aura Addressable 1", ledsCount: 0, ledsMin: 0, ledsMax: 240 },
     ],
     modes: [
-      { name: "Direct", flags: FLAG.perLedColor },
+      // perLedColor is the flag HARE reads to find a direct-colour mode, and
+      // it has to survive alongside a bit the SDK has never heard of.
+      { name: "Direct", flags: FLAG.perLedColor | FLAG.wholeDeviceOnly },
       { name: "Static", flags: FLAG.modeSpecificColor },
       { name: "Rainbow", flags: FLAG.speed, speedMin: 0, speedMax: 255, speed: 128 },
     ],
@@ -200,6 +243,15 @@ export const DEVICES = [
       { name: "Spectrum Cycle", flags: FLAG.speed, speedMin: 0, speedMax: 255, speed: 128 },
     ],
     color: [10, 200, 90],
+  },
+  {
+    // Deliberately unreadable. See `matrixLie` in encodeZone above.
+    name: "Malformed Controller",
+    vendor: "Unknown",
+    type: 15, // unknown
+    zones: [{ name: "Broken", ledsCount: 4, segmentLie: true }],
+    modes: [{ name: "Direct", flags: FLAG.perLedColor }],
+    color: [1, 2, 3],
   },
   {
     name: "Vengeance RGB Pro",
@@ -309,9 +361,18 @@ export function startServer() {
             console.log(`[fake-openrgb] requestControllerData for unknown device ${deviceId}`);
             return;
           }
-          const data = buildControllerData(spec);
-          socket.write(Buffer.concat([header(deviceId, 1, data.length), data]));
-          console.log(`[fake-openrgb] sent controller data for device ${deviceId} (${spec.name})`);
+          // The client asks for a protocol version in the request body, and a
+          // real OpenRGB answers in THAT version's shape. The simulator used
+          // to ignore it and always reply in v5, which made it impossible to
+          // test the one thing that rescues an awkward device: asking for an
+          // older, smaller reply.
+          const requested = data.length >= 4 ? data.readUInt32LE(0) : PROTOCOL_VERSION;
+          const version = Math.min(requested, PROTOCOL_VERSION);
+          const body = buildControllerData(spec, version);
+          socket.write(Buffer.concat([header(deviceId, 1, body.length), body]));
+          console.log(
+            `[fake-openrgb] sent controller data for device ${deviceId} (${spec.name}) at protocol ${version}`
+          );
         } else if (commandId === 1000) {
           // resizeZone: two little-endian ints, zone id then new length. The
           // real server clamps to the zone's own range and re-lays-out the

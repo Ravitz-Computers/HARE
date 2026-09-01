@@ -21,6 +21,7 @@
 // much smaller thing to go and check.
 import { KrakenLcdDriver } from "../dist-electron/backend/displays/krakenLcdDriver.js";
 import { FakeKrakenHid, FakeKrakenUsb, withFakeUsbStack } from "./fake-kraken-screen.mjs";
+import { readFileSync, existsSync } from "node:fs";
 
 let failures = 0;
 function check(label, cond) {
@@ -243,6 +244,246 @@ console.log("NZXT Kraken Z screen driver, against a simulated cooler...\n");
   const cmd = hid.written.find((w) => w[0] === 0x38 && w[1] === 0x01);
   check("'Reset to stock' switches the screen back to liquid mode (0x38 0x01 mode 0x02)", cmd?.[2] === 0x02);
 }
+
+// --- The screens HARE knows about, and what it admits it can't drive ------
+// Detection and control are separate promises. A screen that is detected and
+// named is useful even when nothing can be written to it — the alternative is
+// what a Lian Li owner actually saw, which was their cooler's screen missing
+// from Widgets & Screens with no explanation at all.
+//
+// The trap guarded here is the other direction: listing a model with a driver
+// it doesn't have, so the UI offers buttons that quietly do nothing.
+{
+  console.log("\nThe model table...");
+  const source = readFileSync("electron/backend/displays/krakenLcd.ts", "utf8");
+
+  // Only real entries, never the prose around them: the comment above the
+  // Lian Li block names the transports that are deliberately absent, and a
+  // check that reads comments would pass on a table that listed none of this.
+  const models = [...source.matchAll(
+    /vendorId: (0x[0-9a-f]+), productId: (0x[0-9a-f]+), name: "([^"]+)", width: (\d+), height: (\d+), driver: ("[a-z-]+"|null)/g
+  )].map((m) => ({
+    vid: m[1],
+    pid: m[2],
+    name: m[3],
+    width: Number(m[4]),
+    height: Number(m[5]),
+    driver: m[6] === "null" ? null : m[6].replaceAll('"', ""),
+  }));
+
+  check(`the model table parses (${models.length} models)`, models.length >= 14);
+
+  const lianli = models.filter((m) => m.name.startsWith("Lian Li"));
+  check(`six Lian Li screens are known (${lianli.length})`, lianli.length === 6);
+  check(
+    "...all HID-transport, which is what node-hid can actually see",
+    lianli.every((m) => m.vid === "0x0416" || m.vid === "0x04fc")
+  );
+  // 0x1CBE is Lian Li's USB-bulk LCD vendor. Those panels are real, but they
+  // do not enumerate through node-hid, so an entry for one could never match
+  // and would be a lie sitting in a table of facts.
+  check(
+    "...and no USB-bulk model is listed, since node-hid would never report it",
+    !models.some((m) => m.vid === "0x1cbe")
+  );
+  check(
+    "the five AIO panels are 480x480",
+    lianli.filter((m) => m.width === 480 && m.height === 480).length === 5
+  );
+  check(
+    "...and the TL LCD is 400x400",
+    lianli.some((m) => m.name.includes("UNI FAN TL") && m.width === 400 && m.height === 400)
+  );
+
+  // The five HID AIO panels share one protocol and one driver. The UNI FAN
+  // TL LCD is a different family in the reference implementation, so it stays
+  // detection-only rather than being quietly folded in with them.
+  const aio = lianli.filter((m) => m.vid === "0x0416");
+  check(
+    "the five AIO panels are driven by the Lian Li driver",
+    aio.length === 5 && aio.every((m) => m.driver === "lianli-aio")
+  );
+  check(
+    "...and the TL LCD, which is a different protocol, is not",
+    lianli.filter((m) => m.vid === "0x04fc").every((m) => m.driver === null)
+  );
+  // No model may claim a write path that hasn't been written.
+  const drivable = models.filter((m) => m.driver !== null);
+  check(
+    `every model claiming a driver has one (${drivable.length})`,
+    drivable.every((m) => m.driver === "kraken" || m.driver === "lianli-aio")
+  );
+  check(
+    "...and each of those drivers exists",
+    existsSync("electron/backend/displays/krakenLcdDriver.ts") &&
+      existsSync("electron/backend/displays/lianLiAioLcdDriver.ts")
+  );
+  check(
+    "...reached through one dispatch point, not a chain of brand checks",
+    existsSync("electron/backend/displays/screenDriver.ts") &&
+      readFileSync("electron/main.ts", "utf8").includes("createScreenDriver")
+  );
+  // The fall-through case: a detected model with no write path must report
+  // every capability as false, or the UI offers buttons that do nothing.
+  const capsTail = source.slice(source.indexOf("function capabilitiesFor"));
+  check(
+    "a model with no driver reports every capability as false",
+    /return \{ staticImage: false, gif: false, video: false, brightness: false, orientation: false, liquidMode: false \};\s*\}/.test(capsTail)
+  );
+  check(
+    "...and the Lian Li panels don't claim animation, which isn't built",
+    /lianli-aio[\s\S]{0,700}gif: false/.test(capsTail)
+  );
+
+  // The research has to outlive the table, or the next person re-derives it.
+  const doc = readFileSync("docs/LIAN-LI-LCD-PROTOCOL.md", "utf8");
+  check("the Lian Li protocol is written down, not just linked", doc.length > 0);
+  check(
+    "...with the command bytes and the packet payload size",
+    doc.includes("0x0E") && doc.includes("0x0C") && doc.includes("1013")
+  );
+  check("...and the licence of the work it came from", doc.includes("MIT"));
+
+  // Screens are found over HID, entirely separately from OpenRGB. When the
+  // OpenRGB side broke, "is my screen detected?" was unanswerable from a log
+  // that listed every RGB device and no screens at all.
+  const mainSrc = readFileSync("electron/main.ts", "utf8");
+  check(
+    "the diagnostic log records screens, not only RGB devices",
+    /screen\(s\) detected/.test(mainSrc)
+  );
+  check(
+    "...with the USB id, which is what identifies an unknown model",
+    /vendorId\.toString\(16\)/.test(mainSrc) && /productId/.test(mainSrc)
+  );
+  check(
+    "...and whether HARE can actually draw on each one",
+    /no write path yet/.test(mainSrc)
+  );
+  check(
+    "...and a failure there never takes the rest of the summary down",
+    /Couldn't check for screens/.test(mainSrc)
+  );
+}
+
+
+// --- What a cooler screen can be asked to show ----------------------------
+// A screen on a cooler is bought to show numbers, and until now HARE offered
+// exactly one. The traps in offering several are all in the details below.
+{
+  console.log("\nScreen infographic...");
+  const metrics = readFileSync("src/lib/screenMetrics.ts", "utf8");
+  const graphic = readFileSync("src/lib/screenInfographic.ts", "utf8");
+  const controls = readFileSync("src/components/ScreenControls.tsx", "utf8");
+  const loop = readFileSync("src/lib/useScreenGauges.ts", "utf8");
+
+  for (const id of ["cpu-temp", "gpu-temp", "mb-temp", "cpu-load", "gpu-load", "cpu-clock", "fan", "clock"]) {
+    check(`"${id}" can be shown`, metrics.includes(`"${id}"`));
+  }
+  check("at most four at once", /MAX_SCREEN_METRICS = 4/.test(metrics));
+  check("...and the checklist stops you picking a fifth", />= MAX_SCREEN_METRICS && !isOn/.test(controls));
+
+  // Sensor ids are provider-specific (`amd:0:temp`, an HWiNFO registry path,
+  // `cooler:0:liquid`). Storing them would break a saved layout the moment
+  // somebody installed or stopped running a different monitoring tool.
+  check(
+    "choices are stored as what was asked for, not as a sensor id",
+    /which reading that \*is\*/.test(metrics) && /match: \(r\) =>/.test(metrics)
+  );
+  check(
+    "...and CPU temperature finds AMD's and Intel's names for it too",
+    /tctl\|tdie/.test(metrics) && /package/.test(metrics)
+  );
+
+  // A metric nothing reports still gets a row. Dropping it would reshuffle the
+  // layout whenever a sensor source came and went, which on a screen glanced
+  // at across a room reads as a fault.
+  check(
+    "a reading that has stopped shows a dash rather than vanishing",
+    /missing: true/.test(metrics) && /value: "--"/.test(metrics)
+  );
+
+  // These panels are round. A 2x2 grid puts a tile where there is no glass.
+  check(
+    "the layout is horizontal bands, which suit a round panel",
+    /bandHeight = height \/ count/.test(graphic)
+  );
+  check(
+    "...inset to the chord of the circle, so nothing runs off the edge",
+    /function safeInset/.test(graphic) && /Math\.sqrt\(r \* r - dy \* dy\)/.test(graphic)
+  );
+  check(
+    "a fan speed gets no progress bar, having no agreed maximum",
+    /fraction: null/.test(metrics) && /tile\.fraction !== null/.test(graphic)
+  );
+
+  // Someone who set a screen up before this existed must not have it change.
+  check(
+    "an existing single-reading setup is left exactly as it was",
+    /background \|\| metrics\.length > 0[\s\S]{0,600}renderGauge/.test(loop)
+  );
+}
+
+// --- Two layers, switched separately --------------------------------------
+// A screen is a background with readings over it, and either half is worth
+// having alone. They used to be mutually exclusive only because sending an
+// image switched the readout off.
+{
+  console.log("\nBackground and readings as separate layers...");
+  const graphic = readFileSync("src/lib/screenInfographic.ts", "utf8");
+  const controls = readFileSync("src/components/ScreenControls.tsx", "utf8");
+  const loop = readFileSync("src/lib/useScreenGauges.ts", "utf8");
+  const types = readFileSync("electron/backend/types.ts", "utf8");
+
+  check(
+    "each layer has its own switch",
+    /backgroundEnabled\?: boolean/.test(types) && /infographicEnabled\?: boolean/.test(types)
+  );
+  check("...and both are in the UI", (controls.match(/<Layer/g) ?? []).length === 2);
+  check(
+    "the readings are drawn over the background, not instead of it",
+    /ctx\.drawImage\(options\.background/.test(graphic)
+  );
+
+  // The failure this guards: turning both layers off while `enabled` is still
+  // true from before the layers existed, and the loop carrying on drawing.
+  check(
+    "one predicate decides whether a screen is live",
+    /function screenIsLive/.test(loop) &&
+      (loop.match(/screenIsLive/g) ?? []).length >= 3
+  );
+  check(
+    "...both layers off stops the redraw",
+    /g\.infographicEnabled !== false &&/.test(loop) && /hasBackground \|\| showsReadings/.test(loop)
+  );
+  check(
+    "...a background on its own is enough, with nothing ticked",
+    /const hasBackground = g\.backgroundEnabled === true && Boolean\(g\.background\)/.test(loop)
+  );
+
+  check("the reading colour can be changed", /textColor/.test(types) && /type="color"/.test(controls));
+  check(
+    "...and the caption follows it rather than staying a fixed grey",
+    /ctx\.globalAlpha = 0\.65;\s*ctx\.fillStyle = textColor/.test(graphic)
+  );
+  // Over a photograph a plain-coloured number can land on anything.
+  check(
+    "text over a picture gets a shadow, so it stays readable on a pale one",
+    /shadowColor/.test(graphic) && /hasBackground/.test(graphic)
+  );
+
+  // A 12-megapixel photo has no business being decoded every five seconds.
+  check(
+    "the picture is cropped to the panel once, when it is chosen",
+    /canvas\.toDataURL\("image\/jpeg"/.test(controls)
+  );
+  check("...and decoded once, not every frame", /backgroundCache/.test(loop));
+  check(
+    "...and a picture that won't decode still leaves the readings drawn",
+    /A background that won't decode must not stop/.test(loop)
+  );
+}
+
 
 console.log("");
 if (failures > 0) {

@@ -232,7 +232,7 @@ console.log("Second-screen dashboard...\n");
   const sidebarSrc = read("src/components/Sidebar.tsx");
   check(
     "the second screen is a feature with its own tab, not a setting",
-    sidebarSrc.includes("Widget Engine") && read("src/pages/WidgetEngine.tsx").length > 0
+    sidebarSrc.includes("Widgets & Screens") && read("src/pages/WidgetEngine.tsx").length > 0
   );
   check(
     "...and no longer appears in Settings",

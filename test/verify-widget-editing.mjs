@@ -162,6 +162,112 @@ const screen = read("src/dashboard/DashboardScreen.tsx");
   );
 }
 
+// --- A screen nobody has configured yet -----------------------------------
+//
+// Settings for a screen are only written once something is chosen, so until
+// then there is no entry at all — which is the state every screen is in the
+// first time its panel is opened. One read of that entry without a question
+// mark threw during render, and because a render throw happens in the
+// renderer rather than the main process, the result was a panel replaced by
+// an error card with nothing in the diagnostic log to explain it. It was
+// reported twice, as "the tab won't open" and then as "the screen doesn't
+// allow any control".
+{
+  const panel = read("src/components/ScreenControls.tsx");
+
+  // Every read has to be optional. A bare `gauge.` is the exact shape of the
+  // bug, so it is banned outright rather than argued about case by case.
+  // Comments are stripped first: the note explaining this bug names the bad
+  // form on purpose, and a check that its own documentation trips is a check
+  // that gets deleted.
+  const code = panel.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const bare = [...code.matchAll(/(?<![?\w])gauge\.[a-zA-Z]/g)].map((m) => m[0]);
+  check(
+    `every read of a screen's settings survives there being none (${bare.length} bare)`,
+    bare.length === 0
+  );
+
+  // The same trap one level down: the settings object itself.
+  const store = read("src/state/store.ts");
+  check(
+    "the settings object always exists, even before anything is saved",
+    /screenGauges:\s*\{\}/.test(store) || /screenGauges:\s*EMPTY/.test(store)
+  );
+
+  // The containment that turned this from "the tab is gone" into "this one
+  // screen says what happened". Worth keeping either way.
+  check(
+    "and one screen's panel failing can't take the tab with it",
+    /inline/.test(read("src/pages/WidgetEngine.tsx")) &&
+      /ErrorBoundary/.test(read("src/pages/WidgetEngine.tsx"))
+  );
+}
+
+// --- The way in to a background picture ------------------------------------
+//
+// The switch for the background layer was disabled until a picture existed,
+// and the control for choosing one only rendered once the layer was on. So the
+// switch said "choose one below" and there was nothing below, and there was no
+// way to add a picture at all. Reported exactly that way.
+{
+  const panel = read("src/components/ScreenControls.tsx");
+  const picker = panel.slice(panel.indexOf("backgroundRef.current?.click()"));
+
+  check(
+    "the picture chooser is not hidden behind the layer it fills",
+    !/\{backgroundOn && \([\s\S]{0,200}backgroundRef\.current/.test(panel)
+  );
+  check(
+    "...and choosing one turns the layer on, so it is one step not two",
+    /background: canvas\.toDataURL\("image\/jpeg", 0\.9\), backgroundEnabled: true/.test(panel)
+  );
+  check("...and a chosen picture can be taken off again", /Remove/.test(picker));
+}
+
+// --- Setting every channel at once -----------------------------------------
+//
+// A fan controller's channels usually carry the same fans, so the same number
+// goes in eight times with a device re-read between each. By hand that is
+// about a minute of clicking, and the thing people do instead is leave every
+// channel at its maximum.
+{
+  const editor = read("src/components/ZoneSizeEditor.tsx");
+  check("every channel can be set to one number at once", /function SetAll/.test(editor));
+  check(
+    "...offering only a number every channel will accept",
+    /Math\.max\(\.\.\.zones\.map\(\(z\) => z\.ledsMin/.test(editor) &&
+      /Math\.min\(\.\.\.zones\.map\(\(z\) => z\.ledsMax/.test(editor)
+  );
+  check(
+    "...applied one at a time, since each one re-reads the controller",
+    /for \(const zone of zones\) \{[\s\S]{0,200}await resizeZone/.test(editor)
+  );
+  check("...and only shown when there is more than one to set", /resizable\.length > 1 && <SetAll/.test(editor));
+}
+
+// --- A screen that cannot be drawn on is left alone ------------------------
+//
+// The redraw runs every five seconds for as long as HARE is open. On a cooler
+// that refuses every write, that is a full open-query-write cycle over USB
+// forever, and forty lines of log a minute saying the same thing.
+{
+  const loop = read("src/lib/useScreenGauges.ts");
+  check(
+    "a screen that keeps failing is eventually left alone",
+    /GIVE_UP_AFTER/.test(loop) && /if \(givenUp\.has\(key\)\) continue;/.test(loop)
+  );
+  check(
+    "...counting refusals that come back as a result, not only thrown errors",
+    /result\.ok === false\) throw new Error/.test(loop)
+  );
+  check("...and a successful draw clears the count", /failures\.delete\(key\)/.test(loop));
+  check(
+    "...with the decision outside the component, so a re-render can't resume it",
+    loop.indexOf("const givenUp = new Map") < loop.indexOf("export function useScreenGauges")
+  );
+}
+
+
 console.log("");
 if (failures > 0) {
   console.error(`ALL_WIDGET_EDITING_CHECKS_FAILED (${failures} failing)`);

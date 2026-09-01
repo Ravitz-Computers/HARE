@@ -13,8 +13,8 @@ thing you pass by hand is a different version or URL:
 
 | Flag | Default |
 | --- | --- |
-| `--version 1.0.0-beta.2` | `package.json`'s version |
-| `--tag v1.0.0-beta.2` | `v` + the version |
+| `--version 1.0.0-beta.4` | `package.json`'s version |
+| `--tag v1.0.0-beta.4` | `v` + the version |
 | `--url <installer url>` | the release asset for that tag |
 | `--dry-run` | off |
 | `--submit` | off |
@@ -37,8 +37,8 @@ edit the script, not the files.
 3. **Test it on Windows**, from the printed commands:
 
    ```
-   winget validate --manifest winget/generated/1.0.0-beta.2
-   winget install --manifest winget/generated/1.0.0-beta.2
+   winget validate --manifest winget/generated/1.0.0-beta.4
+   winget install --manifest winget/generated/1.0.0-beta.4
    ```
 
    Use a throwaway VM or Windows Sandbox for the second one. It really installs.
@@ -103,18 +103,16 @@ usually means a human reviewer looks at it rather than an automatic merge. See
 
 **The silent install.** Validation runs the installer with the switches in the
 manifest and fails if a window is still on screen at the end. HARE's two child
-installers are handled in `build/installer.nsh`: the Visual C++ runtime gets
-Microsoft's documented `/install /quiet /norestart`, and the PawnIO driver —
-which has no documented silent switch — is skipped, with the app telling the
-person where to install it from afterwards. `test/verify-winget.mjs` checks
-both are still true.
+installers are handled in `build/installer.nsh`, each with the switch its own
+publisher documents: `/install /quiet /norestart` for the Visual C++ runtime,
+and `-install -silent` for the PawnIO driver. Neither is guessed, and
+`test/verify-winget.mjs` checks both are still true.
 
 ---
 
-## What an unattended install leaves out
+## What an unattended install gets
 
-Motherboard and memory lighting needs the PawnIO driver, and a `winget install`
-deliberately doesn't install it. Someone who installs HARE this way gets
-peripherals working immediately and installs the driver from
-**Settings → Hardware** in one click. The package description says so, so it
-isn't a surprise.
+All of it. Motherboard and memory lighting needs the PawnIO driver, and the
+installer puts that on too — silently, with the switch declared in PawnIO's own
+manifest in this same repository. If the driver somehow doesn't take, setup
+carries on and the app offers it again from **Settings → Hardware**.

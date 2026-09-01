@@ -88,7 +88,7 @@ distributing the binary, and they require:
 > interchange, for no more than the cost of physically performing the
 > distribution.
 >
-> Write to **avrumi@ravitzcomputers.com**, saying which version of HARE you
+> Write to **support@ravitzcomputers.com**, saying which version of HARE you
 > have — Settings → About shows it, or it's in the installer's filename.
 
 This offer is shipped with every copy of HARE: `LICENSE-NOTES.md` is installed

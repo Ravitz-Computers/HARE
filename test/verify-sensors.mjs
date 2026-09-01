@@ -37,11 +37,13 @@ import {
 } from "../dist-electron/backend/sensors/providers/libreHardwareMonitor.js";
 import { parseHwinfoRegistry, HwinfoProvider } from "../dist-electron/backend/sensors/providers/hwinfoRegistry.js";
 import { SensorHub } from "../dist-electron/backend/sensors/sensorHub.js";
+import { createClaimCounter } from "../dist-electron/backend/sensors/sensorClaims.js";
 import { hottestTemperature, formatReading } from "../dist-electron/backend/sensors/sensorTypes.js";
 import { parseServiceState, detectPawnIo } from "../dist-electron/backend/pawnIo.js";
 import { thermalLevel, computeEffectFrame, reportHottestTemperature } from "../dist-electron/backend/effectsEngine.js";
 import { EFFECTS } from "../dist-electron/backend/types.js";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 
 let failures = 0;
 function check(label, cond) {
@@ -453,6 +455,72 @@ console.log("System sensors...\n");
   } finally {
     Object.defineProperty(process, "platform", realPlatform);
   }
+}
+
+// --- Several watchers in one window ---------------------------------------
+//
+// The main process tracks sensor watching per *window*: the first request
+// takes a claim on the hub, later ones are ignored, and one release drops it.
+// Four things in one window ask independently — the cooler-screen redraw
+// loop, the Widgets & Screens panel, the sensor settings page and the
+// dashboard's sensor widget.
+//
+// Without a count in front of that, opening the screen panel and leaving it
+// again sent a release that dropped the claim the redraw loop was holding,
+// and polling stopped. Nothing errored anywhere: the cooler carried on being
+// redrawn from a snapshot that never changed, so every reading on it showed a
+// dash until HARE was restarted. That is the failure these checks are for.
+{
+  const claims = createClaimCounter();
+
+  check("the first watcher is the one the main process is told about", claims.change(true) === true);
+  check("a second watcher in the same window is not", claims.change(true) === false);
+  check("nor is a third", claims.change(true) === false);
+
+  check("releasing one of three tells nobody", claims.change(false) === false);
+  check("releasing the second still tells nobody", claims.change(false) === false);
+  check("only the last release stops the hub", claims.change(false) === true);
+  check("and the count is back to nothing", claims.count === 0);
+
+  // The exact sequence from the bug: the screen readout starts watching, the
+  // settings panel is opened and closed, and the readout must still be live.
+  const live = createClaimCounter();
+  live.change(true); // redraw loop mounts
+  live.change(true); // panel opened
+  check(
+    "closing a panel does not stop sensors the screen readout is still using",
+    live.change(false) === false && live.count === 1
+  );
+
+  // React re-runs effect cleanups in development, and a window reload starts
+  // the renderer's count at zero while the main process still holds its claim.
+  // A release with nothing held must not turn a source off underneath
+  // whatever else is using it.
+  const spurious = createClaimCounter();
+  check("a release with nothing held is ignored", spurious.change(false) === false);
+  check("and does not push the count below zero", spurious.count === 0);
+  check("so the next real watcher still starts the hub", spurious.change(true) === true);
+}
+
+// --- And the store actually goes through it -------------------------------
+//
+// The counter passing its own checks proves nothing if the one caller that
+// matters still talks to the main process on every mount and unmount.
+{
+  const store = readFileSync(new URL("../src/state/store.ts", import.meta.url), "utf8");
+  const action = store.slice(store.indexOf("watchSensors: async"), store.indexOf("refreshSensors: async"));
+  check(
+    "the store counts its claims before telling the main process",
+    /sensorClaims\.change\(watching\)/.test(action)
+  );
+  check(
+    "and returns early rather than sending anything on a middle claim",
+    /if \(!sensorClaims\.change\(watching\)\) return;/.test(action)
+  );
+  check(
+    "watchSensors reaches the main process from exactly one place",
+    (action.match(/api\.watchSensors\(/g) ?? []).length === 1
+  );
 }
 
 console.log("");

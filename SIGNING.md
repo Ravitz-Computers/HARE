@@ -161,7 +161,7 @@ Independent of any certificate, every release carries a
 installer was produced by this workflow from this commit.
 
 ```bash
-gh attestation verify HARE-Setup-1.0.0-beta.2.exe --repo Ravitz-Computers/HARE
+gh attestation verify HARE-Setup-1.0.0-beta.4.exe --repo Ravitz-Computers/HARE
 ```
 
 Windows does not read this — it does nothing for SmartScreen. What it does is

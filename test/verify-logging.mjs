@@ -218,6 +218,35 @@ console.log("Diagnostic logging...\n");
   );
 }
 
+// --- The window's own faults reach the log too -----------------------------
+//
+// The logger captures the main process's console, which made the log look
+// complete while being blind to the whole renderer. Anything React throws
+// while rendering throws there, and none of it was landing in the file: one
+// bug was reported twice, from two different symptoms, with an empty log
+// behind both, because the message only ever went to a console nobody opened.
+{
+  const main = readFileSync("electron/main.ts", "utf8");
+  check(
+    "the window's console is piped into the diagnostic log",
+    /webContents\.on\(\s*["']console-message["']/.test(main)
+  );
+  check(
+    "...on every window, through the guards each one already gets",
+    /captureRendererConsole\(win\)/.test(main) &&
+      main.indexOf("captureRendererConsole(win)") < main.indexOf("function captureRendererConsole")
+  );
+  check(
+    "...errors and warnings only, so per-frame chatter can't bury them",
+    /if \(!isError && !isWarning\) return;/.test(main)
+  );
+  check(
+    "...and both shapes of the event are handled, or it logs nothing at all",
+    /legacyLevel/.test(main) && /level === "error"/.test(main) && /level === 3/.test(main)
+  );
+}
+
+
 console.log("");
 if (failures > 0) {
   console.error(`ALL_LOGGING_CHECKS_FAILED (${failures} failing)`);

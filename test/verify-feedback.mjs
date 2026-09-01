@@ -189,7 +189,7 @@ console.log("Feedback, failure and reach...\n");
     "help doesn't send people to Settings for the second screen — it moved",
     !help.includes("Appearance → Second Screen")
   );
-  check("...it names where it actually is", help.includes("Widget Engine"));
+  check("...it names where it actually is", help.includes("Widgets &amp; Screens"));
   check(
     "...and Open OpenRGB is described where it actually lives",
     !/Diagnostic Log<\/b>, turn it on, then use <b>Open OpenRGB<\/b> in the\s*\n?\s*same panel/.test(help)
