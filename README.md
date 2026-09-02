@@ -200,17 +200,6 @@ Security problems go to support@ravitzcomputers.com — see [SECURITY.md](SECURI
 
 ---
 
-## Code signing
-
-Free code signing provided by [SignPath.io](https://signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/).
-
-Private keys are held in SignPath's hardware security module and never leave it — nobody on this
-project has a copy. Every signing request is approved by hand, and SignPath verifies that what it
-signs was built by this repository's own release workflow. See
-[`docs/CODE-SIGNING-POLICY.md`](docs/CODE-SIGNING-POLICY.md) for who can approve a release and how
-one is made.
-
 HARE collects nothing and sends nothing anywhere. There is no telemetry, no account, and the
 diagnostic log is off unless you turn it on and never leaves your PC.
 
